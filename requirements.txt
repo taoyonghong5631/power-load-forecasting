@@ -1,0 +1,22 @@
+# 核心
+numpy>=1.26
+pandas>=2.0
+scikit-learn>=1.3
+
+# 三个预测模型
+torch>=2.0
+xgboost>=2.0
+statsmodels>=0.14
+
+# 可视化与界面
+plotly>=5.18
+streamlit>=1.30
+kaleido>=0.2.1          # Plotly 导出 PNG
+matplotlib>=3.8
+Pillow>=10.0            # 生成 GIF
+
+# 数据与外生变量
+requests>=2.31
+holidays>=0.40          # 节假日特征
+joblib>=1.3
+

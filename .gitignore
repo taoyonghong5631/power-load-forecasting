@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# 原始数据（体积大，用 scripts/fetch_data.py 重新下载）
+data/*.txt
+data/*.zip
+data/*.part
+data/cache/
+
+# 训练产物
+results/models/
+results/figures/*.html
+*.joblib
+*.pt
+
+# 临时
+.ipynb_checkpoints/
+*.log
