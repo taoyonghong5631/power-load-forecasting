@@ -89,7 +89,9 @@ UCI 服务器在这台机器上很不稳定：完整文件约 **169 MB**，但�
 等完整文件下载完成后，用一条命令就能复现原始脚本真正针对的 **MT_001 全量 4 年**结果：
 
 ```bash
-python run_pipeline.py --client-col 1
+python run_pipeline.py --client-col 1 --models lstm,xgb,arima --origins 30   # 约 15 分钟
+python scripts/make_screenshots.py && python scripts/make_gif.py --model XGBoost --days 10
+python scripts/update_readme_results.py     # 把新结果写回本 README
 ```
 
 顺带一提：`scripts/fetch_data.py` 现在会在下载中断时**自动抢救**已收到的部分
