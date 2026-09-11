@@ -98,8 +98,11 @@ with st.sidebar:
     st.subheader("3. 特征与模型")
     use_temperature = st.checkbox("加入温度特征", True)
     use_calendar = st.checkbox("加入日期特征", True)
-    model_names = st.multiselect("参与对比的模型", ["LSTM", "XGBoost", "ARIMA"],
-                                 default=["XGBoost", "ARIMA"])
+    model_names = st.multiselect(
+        "参与对比的模型",
+        ["持久性 (t-1)", "季节朴素 (t-24)", "LSTM", "XGBoost", "ARIMA"],
+        default=["持久性 (t-1)", "XGBoost", "ARIMA"],
+        help="朴素基线必须一起看：本项目 MT_001 长时间停在同一个读数上，持久性基线很强。")
 
     st.subheader("4. 实验规模")
     quick = st.checkbox("快速模式（少轮数、少起点）", True)
@@ -205,7 +208,9 @@ if df is not None and len(df) > 0:
                 progress = st.progress(0.0, text="准备训练...")
                 for i, name in enumerate(model_names):
                     progress.progress(i / len(model_names), text="训练 %s ..." % name)
-                    kind = {"LSTM": "lstm", "XGBoost": "xgb", "ARIMA": "arima"}[name]
+                    kind = {"LSTM": "lstm", "XGBoost": "xgb", "ARIMA": "arima",
+                            "持久性 (t-1)": "naive",
+                            "季节朴素 (t-24)": "seasonal_naive"}[name]
                     g = ("base",) if kind == "arima" else groups
                     model = load_model("%s_%s" % (name, cfg.fingerprint)) if use_cached else None
                     if model is None:

@@ -87,6 +87,12 @@ def preprocess(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
 
     out["load"] = out["load"].interpolate(method="time", limit=dcfg.interp_limit,
                                           limit_area="inside")
+    # 只在"首个到最后一个有效观测之间"做前向/后向填充，避免在序列两端
+    # 用相邻值伪造出一段不存在的读数
+    first_valid = out["load"].first_valid_index()
+    last_valid = out["load"].last_valid_index()
+    if first_valid is not None:
+        out = out.loc[first_valid:last_valid]
     out["load"] = out["load"].ffill(limit=dcfg.interp_limit).bfill(limit=dcfg.interp_limit)
     n_before = len(out)
     out = out.dropna(subset=["load"])

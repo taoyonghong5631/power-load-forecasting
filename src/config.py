@@ -52,11 +52,19 @@ class LSTMConfig:
     learning_rate: float = 1e-3
     patience: int = 8                    # 早停
     val_ratio: float = 0.15
+    # 'delta'：预测 y_t - y_{t-1}（推荐）。这类表计长时间停在同一个值上，
+    # 直接预测水平会被 MSE 拉向均值、把平台和跳变都抹平；预测增量等于让模型
+    # 从"持久性"出发只学修正量，ARIMA 的 d=1 也是同一个道理。
+    target_mode: str = "delta"           # 'level' | 'delta'
 
 
 @dataclass
 class XGBConfig:
-    n_estimators: int = 600
+    n_estimators: int = 600              # 不用早停时的树数量
+    max_rounds: int = 2000               # 用早停时的最大树数量（实际由验证集决定）
+    early_stopping_rounds: int = 30
+    val_ratio: float = 0.1               # 从训练段末尾切出的时间序验证集比例
+    use_early_stopping: bool = True
     max_depth: int = 6
     learning_rate: float = 0.05
     subsample: float = 0.9
@@ -65,6 +73,14 @@ class XGBConfig:
     min_child_weight: float = 1.0
     tree_method: str = "hist"
     n_jobs: int = 6
+    target_mode: str = "delta"           # 'level' | 'delta'
+    # 'direct'：每个预测步单独训练一个模型，预测"相对起点真实值的增量"，
+    #   24 步全部锚定在起点上，不存在递归误差累积（日 Ahead 负荷预测的标准做法）。
+    # 'recursive'：只训练一步模型然后自己喂自己，等价于原脚本 LSTM 的做法。
+    # 实测（MT_001，30 个滚动起点）：recursive 池化 MAE 1.578 / WAPE 33.6%，
+    # direct 1.827 / 38.9%——这台表计的跳变基本不可预测，直接多步的"形状"预测
+    # 反而增加误差。两种策略都会在对比表里给出，不做筛选。
+    strategy: str = "recursive"          # 'direct' | 'recursive'
 
 
 @dataclass

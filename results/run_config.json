@@ -1,8 +1,8 @@
 {
   "data": {
-    "txt_path": "C:\\Users\\陶永宏\\Desktop\\时序预测 电力负荷预测\\data\\cache\\partial_LD2011_2014.txt",
+    "txt_path": "C:\\Users\\陶永宏\\Desktop\\时序预测 电力负荷预测\\data\\LD2011_2014.txt",
     "zip_path": "C:\\Users\\陶永宏\\Desktop\\时序预测 电力负荷预测\\data\\LD2011_2014.txt.zip",
-    "client_col": 300,
+    "client_col": 1,
     "freq": "h",
     "zero_as_missing": true,
     "interp_limit": 24,
@@ -13,7 +13,7 @@
     "look_back": 24,
     "horizon": 24,
     "train_ratio": 0.8,
-    "n_eval_origins": 20,
+    "n_eval_origins": 30,
     "eval_stride": 24,
     "seed": 42
   },
@@ -25,10 +25,15 @@
     "batch_size": 64,
     "learning_rate": 0.001,
     "patience": 8,
-    "val_ratio": 0.15
+    "val_ratio": 0.15,
+    "target_mode": "delta"
   },
   "xgb": {
     "n_estimators": 600,
+    "max_rounds": 2000,
+    "early_stopping_rounds": 30,
+    "val_ratio": 0.1,
+    "use_early_stopping": true,
     "max_depth": 6,
     "learning_rate": 0.05,
     "subsample": 0.9,
@@ -36,7 +41,9 @@
     "reg_lambda": 1.0,
     "min_child_weight": 1.0,
     "tree_method": "hist",
-    "n_jobs": 6
+    "n_jobs": 6,
+    "target_mode": "delta",
+    "strategy": "recursive"
   },
   "arima": {
     "order": [
@@ -71,6 +78,6 @@
   },
   "use_calendar": true,
   "use_temperature": true,
-  "include_annual": false,
+  "include_annual": true,
   "device": "cpu"
 }

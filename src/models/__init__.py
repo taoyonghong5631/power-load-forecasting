@@ -39,10 +39,20 @@ def build_model(name: str, cfg: Config, groups: Iterable[str],
     if key in ("lstm", "rnn"):
         from .lstm import LSTMForecaster
         return LSTMForecaster(cfg, groups=groups, name=label or "LSTM")
-    if key in ("xgb", "xgboost"):
+    if key in ("xgb", "xgboost", "xgb_direct", "xgb_recursive"):
         from .xgb import XGBForecaster
-        return XGBForecaster(cfg, groups=groups, name=label or "XGBoost")
+        strat = {"xgb_direct": "direct", "xgb_recursive": "recursive"}.get(key)
+        default_label = {"xgb_direct": "XGBoost (直接多步)",
+                         "xgb_recursive": "XGBoost (递归)"}.get(key, "XGBoost")
+        return XGBForecaster(cfg, groups=groups, name=label or default_label,
+                             strategy=strat)
     if key in ("arima", "sarima", "sarimax"):
         from .arima import ARIMAForecaster
         return ARIMAForecaster(cfg, name=label or "ARIMA")
-    raise KeyError("未知模型: %s（可选 lstm / xgb / arima）" % name)
+    if key in ("naive", "persistence"):
+        from .naive import NaiveForecaster
+        return NaiveForecaster(cfg, season=1, name=label or "持久性 (t-1)")
+    if key in ("seasonal_naive", "snaive", "naive24"):
+        from .naive import NaiveForecaster
+        return NaiveForecaster(cfg, season=24, name=label or "季节朴素 (t-24)")
+    raise KeyError("未知模型: %s（可选 naive / seasonal_naive / lstm / xgb / arima）" % name)

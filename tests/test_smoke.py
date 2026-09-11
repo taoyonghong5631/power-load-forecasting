@@ -124,6 +124,50 @@ def test_models_short_run():
         assert np.isfinite(pred).all(), "%s 输出了 NaN/inf" % model.name
 
 
+def test_delta_mode_beats_mean_baseline_on_flat_series():
+    """增量目标在"平台型"序列上应该贴近持久性，而不是塌到均值。"""
+    from src.models.xgb import XGBForecaster
+
+    idx = pd.date_range("2013-01-01", periods=2400, freq="h")
+    rng = np.random.default_rng(0)
+    # 每 240 小时换一次平台，保证"预测起点 + 24 小时"整段落在同一个平台上
+    level = np.repeat(rng.uniform(1, 20, size=10), 240)
+    df = pd.DataFrame({"load": level, "temp": 15.0}, index=idx)
+
+    cfg = get_config()
+    cfg.task.horizon = 24
+    cfg.xgb.n_estimators = 200
+    m = XGBForecaster(cfg, ("base", "calendar", "temperature")).fit(df.iloc[:1200])
+    pred = m.predict(df, 1300, 24)            # 1300 位于第 5 段平台(1200~1439)中间
+    true = df["load"].iloc[1301:1325].to_numpy()
+    naive = np.full(24, df["load"].iloc[1300])
+    assert np.allclose(true, naive), "测试构造有误：这段应该是一条水平线"
+    assert np.mean(np.abs(true - pred)) < 1.0, "增量模式下误差过大：%.2f" % np.mean(np.abs(true - pred))
+    assert abs(np.mean(np.abs(true - pred)) - np.mean(np.abs(true - naive))) < 0.5
+
+
+def test_naive_forecaster():
+    from src.models.naive import NaiveForecaster
+
+    df = synthetic_dataset(30, seed=7)
+    cfg = get_config()
+    load = df["load"].to_numpy(float)
+
+    # 持久性：整段都应该等于 origin 时刻的值（不能混入未来的真实值）
+    m1 = NaiveForecaster(cfg, season=1).fit(df.iloc[:400], verbose=False)
+    p1 = m1.predict(df, 400, 24)
+    assert p1.shape == (24,)
+    assert np.allclose(p1, load[400]), "持久性基线必须整段等于起点值"
+
+    # 季节性朴素：第 h 步用 y[o+h-24]，全部来自过去
+    m24 = NaiveForecaster(cfg, season=24).fit(df.iloc[:400], verbose=False)
+    p24 = m24.predict(df, 400, 24)
+    expected = np.array([load[400 + h - 24] for h in range(1, 25)])
+    assert np.allclose(p24, expected)
+    # 关键：预测里不能出现 origin 之后(含)的真实值
+    assert not np.allclose(p24, load[401:425]), "季节性朴素混入了未来信息"
+
+
 def test_lstm_short_run():
     """LSTM 递归多步预测的形状正确性（小数据、少轮数）。"""
     import torch

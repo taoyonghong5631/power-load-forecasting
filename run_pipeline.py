@@ -59,7 +59,9 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--client-col", type=int, default=1, help="使用第几列客户（默认 MT_001）")
     ap.add_argument("--data-file", default=None,
                     help="自定义原始 txt 路径（默认 data/LD2011_2014.txt）")
-    ap.add_argument("--models", default="lstm,xgb,arima", help="要跑的模型，逗号分隔")
+    ap.add_argument("--models",
+                    default="naive,seasonal_naive,lstm,xgb_recursive,xgb_direct,arima",
+                    help="要跑的模型，逗号分隔（naive=持久性基线，seasonal_naive=昨天同时刻）")
     ap.add_argument("--epochs", type=int, default=None, help="覆盖 LSTM 训练轮数")
     ap.add_argument("--origins", type=int, default=None, help="滚动起点个数")
     ap.add_argument("--no-temperature", action="store_true", help="不使用温度外生变量")
@@ -139,8 +141,12 @@ def main() -> int:
            % (len(origins), cfg.task.horizon))
 
     model_specs = {
+        "naive": ("naive", ("base",), "持久性 (t-1)"),
+        "seasonal_naive": ("seasonal_naive", ("base",), "季节朴素 (t-24)"),
         "lstm": ("lstm", feature_groups, "LSTM"),
         "xgb": ("xgb", feature_groups, "XGBoost"),
+        "xgb_recursive": ("xgb_recursive", feature_groups, "XGBoost (递归多步)"),
+        "xgb_direct": ("xgb_direct", feature_groups, "XGBoost (直接多步)"),
         "arima": ("arima", ("base",), "ARIMA"),
     }
     for key in requested:
@@ -176,9 +182,9 @@ def main() -> int:
         if hasattr(model, "feature_importance"):
             importance = model.feature_importance(top_n=22)
         save_model(model, "%s_%s" % (label, cfg.fingerprint))
-        print("-- %s 完成：MAE=%.2f  RMSE=%.2f  MAPE=%.2f%%  (训练 %.1fs)"
+        print("-- %s 完成：MAE=%.3f  RMSE=%.3f  WAPE=%.2f%%  (训练 %.1fs)"
               % (label, res["metrics"]["MAE"], res["metrics"]["RMSE"],
-                 res["metrics"]["MAPE"], train_seconds))
+                 res["metrics"]["WAPE"], train_seconds))
 
     if not results:
         print("[fatal] 没有任何模型跑成功")
@@ -195,25 +201,32 @@ def main() -> int:
     plots.save(plots.per_origin_figure(results, "MAE"), "02_per_origin_mae")
     best_name = min(results, key=lambda k: results[k]["metrics"]["MAE"])
     best = results[best_name]
-    plots.save(plots.horizon_error_figure(best["truths"], best["preds"]),
+    # 出图时用"最好的学习型模型"：朴素基线是一条平线，不适合当示例图，
+    # 但表里仍然如实保留它的排名
+    learned = {k: v for k, v in results.items()
+               if not any(t in k for t in ("持久性", "季节朴素"))}
+    fig_name = min(learned, key=lambda k: learned[k]["metrics"]["MAE"]) if learned else best_name
+    fig_res = results[fig_name]
+    print("[report] 表格最优: %s；示例图用最好的学习型模型: %s" % (best_name, fig_name))
+    plots.save(plots.horizon_error_figure(fig_res["truths"], fig_res["preds"]),
                "03_horizon_error")
-    plots.save(plots.error_profile_figure(best["truths"], best["preds"],
-                                          best["timestamps"]),
+    plots.save(plots.error_profile_figure(fig_res["truths"], fig_res["preds"],
+                                          fig_res["timestamps"]),
                "04_error_profile")
 
     # 单窗口示例图（挑误差中位数的那一个窗口，避免只展示最好看的一天）
-    per_mae = np.array([m["MAE"] for m in best["per_origin"]])
+    per_mae = np.array([m["MAE"] for m in fig_res["per_origin"]])
     pick = int(np.argsort(per_mae)[len(per_mae) // 2])
-    origin = best["origins"][pick]
-    ts = best["timestamps"][pick]
+    origin = fig_res["origins"][pick]
+    ts = fig_res["timestamps"][pick]
     hist = df["load"].iloc[origin + 1 - cfg.task.look_back:origin + 1]
-    band = np.full(len(ts), float(np.nanstd(best["truths"] - best["preds"])))
+    band = np.full(len(ts), float(np.nanstd(fig_res["truths"] - fig_res["preds"])))
     plots.save(plots.forecast_figure(
-        ts, best["truths"][pick], best["preds"][pick],
-        title="%s 单窗口预测（起点 %s）" % (best_name, df.index[origin]),
+        ts, fig_res["truths"][pick], fig_res["preds"][pick],
+        title="%s 单窗口预测（起点 %s）" % (fig_name, df.index[origin]),
         band=band, history=hist), "05_sample_forecast")
-    plots.save(plots.overview_figure(df, train_end, ts, best["truths"][pick],
-                                     best["preds"][pick]), "06_overview")
+    plots.save(plots.overview_figure(df, train_end, ts, fig_res["truths"][pick],
+                                     fig_res["preds"][pick]), "06_overview")
     if trained.get("LSTM") is not None and getattr(trained["LSTM"], "history", None):
         plots.save(plots.training_curve_figure(trained["LSTM"].history), "07_lstm_training")
 
@@ -239,9 +252,9 @@ def main() -> int:
         res = evaluate_model(mdl, df, origins, cfg.task.horizon, verbose=False)
         res["metrics"]["train_seconds"] = time.time() - t0
         ablation[label] = res
-        print("-- %s：MAE=%.2f  RMSE=%.2f  MAPE=%.2f%%"
+        print("-- %s：MAE=%.3f  RMSE=%.3f  WAPE=%.2f%%"
               % (label, res["metrics"]["MAE"], res["metrics"]["RMSE"],
-                 res["metrics"]["MAPE"]))
+                 res["metrics"]["WAPE"]))
         if label.startswith("+ Calendar + Temperature"):
             importance = mdl.feature_importance(top_n=22)
 

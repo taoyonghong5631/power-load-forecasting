@@ -51,24 +51,25 @@ def build_block() -> str:
         with open(summary_path, encoding="utf-8") as fh:
             meta = json.load(fh)
         d = meta["data"]
-        parts.append("> 数据：`%s` 第 %d 列客户，%d 小时（%s ~ %s）；"
+        parts.append("> 数据：`%s` 第 %d 列客户（MT_%03d），%d 小时（%s ~ %s）；"
                      "滚动起点 %d 个 × 每窗口 %d 步。\n"
-                     % (d["source"], d["client_col"], d["hours"],
+                     % (d["source"], d["client_col"], d["client_col"], d["hours"],
                         str(d["start"])[:16], str(d["end"])[:16],
                         meta["task"]["origins"], meta["task"]["horizon"]))
 
     cmp_path = os.path.join(RESULTS, "model_comparison.csv")
     if os.path.exists(cmp_path):
         df = pd.read_csv(cmp_path, index_col=0)
-        keep = [c for c in ["MAE", "RMSE", "MAPE(%)", "sMAPE(%)", "尖峰MAE", "R2",
-                            "窗口数", "耗时(s)"] if c in df.columns]
+        keep = [c for c in ["MAE", "RMSE", "WAPE(%)", "MAPE(%)", "sMAPE(%)", "尖峰MAE",
+                            "R2", "窗口数", "耗时(s)"] if c in df.columns]
         df = df[keep].sort_values("MAE")
-        parts.append("### 1. 多模型对比（滚动起点平均）\n\n" + md_table(df) + "\n")
+        parts.append("### 1. 多模型对比（池化指标：把 30 个预测窗口的点拼起来算一次）\n\n"
+                     + md_table(df) + "\n")
 
     ab_path = os.path.join(RESULTS, "ablation_features.csv")
     if os.path.exists(ab_path):
         df = pd.read_csv(ab_path, index_col=0)
-        keep = [c for c in ["MAE", "RMSE", "MAPE(%)", "尖峰MAE", "R2",
+        keep = [c for c in ["MAE", "RMSE", "WAPE(%)", "尖峰MAE", "R2",
                             "MAE相对提升(%)", "累计提升(%)"] if c in df.columns]
         parts.append("### 2. 特征工程消融（XGBoost）\n\n"
                      + md_table(df[keep], float_fmt="%.2f") + "\n")

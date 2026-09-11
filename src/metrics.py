@@ -23,11 +23,24 @@ def rmse(y_true, y_pred) -> float:
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
-def mape(y_true, y_pred) -> float:
-    """平均绝对百分比误差（%），对接近 0 的真值做截断保护。"""
+def mape(y_true, y_pred, floor_ratio: float = 0.1) -> float:
+    """平均绝对百分比误差（%）。
+
+    负荷数据里接近 0 的点很常见（本项目 MT_001 的测试段有 23% 的点 < 1 kW，
+    最低 0.32 kW），直接除以真值会让单点误差贡献几百个百分点，把整体 MAPE 拉爆。
+    这里给分母加一个"平均负荷的 10%"下限（业界常见的做法），并把 WAPE 作为
+    更稳健的百分比指标一起报告。
+    """
     y_true, y_pred = _flat(y_true), _flat(y_pred)
-    denom = np.maximum(np.abs(y_true), 1e-3 * (np.mean(np.abs(y_true)) + EPS))
+    floor = floor_ratio * (np.mean(np.abs(y_true)) + EPS)
+    denom = np.maximum(np.abs(y_true), floor)
     return float(np.mean(np.abs(y_true - y_pred) / denom) * 100)
+
+
+def wape(y_true, y_pred) -> float:
+    """加权绝对百分比误差 = Σ|误差| / Σ|真值|，对近零值不敏感，负荷预测常用。"""
+    y_true, y_pred = _flat(y_true), _flat(y_pred)
+    return float(np.sum(np.abs(y_true - y_pred)) / (np.sum(np.abs(y_true)) + EPS) * 100)
 
 
 def smape(y_true, y_pred) -> float:
@@ -57,6 +70,7 @@ def forecast_metrics(y_true, y_pred) -> Dict[str, float]:
     return {
         "MAE": mae(y_true, y_pred),
         "RMSE": rmse(y_true, y_pred),
+        "WAPE": wape(y_true, y_pred),
         "MAPE": mape(y_true, y_pred),
         "sMAPE": smape(y_true, y_pred),
         "PeakMAE": peak_mae(y_true, y_pred),
@@ -64,7 +78,7 @@ def forecast_metrics(y_true, y_pred) -> Dict[str, float]:
     }
 
 
-METRIC_ORDER = ["MAE", "RMSE", "MAPE", "sMAPE", "PeakMAE", "R2"]
+METRIC_ORDER = ["MAE", "RMSE", "WAPE", "MAPE", "sMAPE", "PeakMAE", "R2"]
 
 
 def aggregate(per_origin: List[Dict[str, float]]) -> Dict[str, float]:

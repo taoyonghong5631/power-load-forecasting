@@ -156,15 +156,25 @@ def build_features(df: pd.DataFrame, groups: Iterable[str],
 
 def build_supervised(df: pd.DataFrame, groups: Iterable[str],
                      target: str = "load", country: str = "PT",
-                     include_annual: bool = True
+                     include_annual: bool = True, target_mode: str = "level"
                      ) -> Tuple[pd.DataFrame, pd.Series, List[str]]:
-    """返回 (X, y, 特征列名)，去掉含 NaN 的行（滞后特征的开头部分）。"""
+    """返回 (X, y, 特征列名)，去掉含 NaN 的行（滞后特征的开头部分）。
+
+    ``target_mode='delta'`` 时 y 变成 y_t - y_{t-1}，配合递归预测使用：
+    推理时 y_hat_t = y_{t-1} + delta_hat。
+    """
     cols = feature_names(groups, include_annual=include_annual)
     feats = build_features(df, groups, country=country)
     missing = [c for c in cols if c not in feats.columns]
     if missing:
         raise KeyError("特征列缺失: %s" % missing)
-    data = pd.concat([feats[cols], feats[target].rename("__y__")], axis=1).dropna()
+    if target_mode == "delta":
+        y = feats[target] - feats[target].shift(1)
+    elif target_mode == "level":
+        y = feats[target]
+    else:
+        raise ValueError("target_mode 只能是 'level' 或 'delta'，收到 %r" % target_mode)
+    data = pd.concat([feats[cols], y.rename("__y__")], axis=1).dropna()
     return data[cols], data["__y__"], cols
 
 

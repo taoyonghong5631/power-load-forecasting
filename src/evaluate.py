@@ -83,25 +83,34 @@ def evaluate_model(model, df: pd.DataFrame, origins: Sequence[int],
 
 def results_to_table(results: Dict[str, Dict[str, object]],
                      baseline: str | None = None) -> pd.DataFrame:
-    """把多个模型的结果整理成对比表。"""
+    """把多个模型的结果整理成对比表。
+
+    用**池化指标**（把所有预测窗口的点拼起来算一次）而不是"逐窗口算完再平均"：
+    每个窗口只有 24 个点，逐窗口的 WAPE/MAPE/R² 方差极大（一个恰好在平台上
+    的窗口会让 R² 变成很大的负数），池化后才反映真实误差水平。
+    """
     rows = []
     for name, res in results.items():
         m = res["metrics"]
+        def pick(key, default=np.nan):
+            return m.get("pooled_" + key, m.get(key, default))
         rows.append({
             "模型": name,
-            "MAE": m.get("MAE"),
-            "RMSE": m.get("RMSE"),
-            "MAPE(%)": m.get("MAPE"),
-            "sMAPE(%)": m.get("sMAPE"),
-            "尖峰MAE": m.get("PeakMAE"),
-            "R2": m.get("R2"),
+            "MAE": pick("MAE"),
+            "RMSE": pick("RMSE"),
+            "WAPE(%)": pick("WAPE"),
+            "MAPE(%)": pick("MAPE"),
+            "sMAPE(%)": pick("sMAPE"),
+            "尖峰MAE": pick("PeakMAE"),
+            "R2": pick("R2"),
+            "MAE_std": m.get("MAE_std"),
             "窗口数": m.get("n_origins"),
             "耗时(s)": m.get("predict_seconds"),
         })
     table = pd.DataFrame(rows).set_index("模型")
     if baseline and baseline in table.index:
         base = table.loc[baseline]
-        for col in ["MAE", "RMSE", "MAPE(%)", "sMAPE(%)", "尖峰MAE"]:
+        for col in ["MAE", "RMSE", "WAPE(%)", "MAPE(%)", "sMAPE(%)", "尖峰MAE"]:
             table[col + "↓%"] = (base[col] - table[col]) / abs(base[col]) * 100.0
     return table
 

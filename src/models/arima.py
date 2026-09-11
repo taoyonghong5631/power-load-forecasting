@@ -67,7 +67,23 @@ class ARIMAForecaster(BaseForecaster):
             res = model.fit(disp=False, maxiter=50)
         self._cache[origin] = res
         self.aic.append(float(res.aic))
+        # SARIMAX 的 results 对象非常大（每个都带着完整数据和状态空间矩阵），
+        # 只保留最近一个就够了，否则 30 个起点会把内存和磁盘都撑爆
+        for old in [k for k in self._cache if k != origin]:
+            self._cache.pop(old, None)
         return res
+
+    def __getstate__(self) -> dict:
+        """序列化时丢掉拟合结果缓存。
+
+        踩过的坑：把 30 个 SARIMAX results 一起 joblib.dump 会生成 7 GB 的模型文件
+        （本项目真的把磁盘写满过一次）。拟合结果本来也不需要持久化——
+        换一个起点重新拟合即可。
+        """
+        state = self.__dict__.copy()
+        state["_cache"] = {}
+        state["train_tail"] = None
+        return state
 
     def predict(self, df: pd.DataFrame, origin: int, horizon: int) -> np.ndarray:
         try:

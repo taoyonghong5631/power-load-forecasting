@@ -28,14 +28,22 @@ plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
 
+
+TABLE_COLUMNS = {
+    "model_comparison.csv": ["MAE", "RMSE", "WAPE(%)", "sMAPE(%)", "尖峰MAE", "R2", "耗时(s)"],
+}
+
+
 def render_table(csv_name: str, out_name: str, title: str, fmt: str = "{:.3f}") -> bool:
     path = os.path.join(RESULTS, csv_name)
     if not os.path.exists(path):
         print("跳过 %s（不存在）" % csv_name)
         return False
     df = pd.read_csv(path, index_col=0)
-    # 只保留有意义的列，避免表格太宽
-    keep = [c for c in df.columns if not c.endswith("_std")]
+    # 只保留有意义的列，避免表格太宽看不清
+    wanted = TABLE_COLUMNS.get(csv_name)
+    keep = ([c for c in wanted if c in df.columns] if wanted
+            else [c for c in df.columns if not c.endswith("_std")])
     df = df[keep].astype(float).round(3)
     fig, ax = plt.subplots(figsize=(1.35 * len(keep) + 3.2, 0.55 * len(df) + 2.0),
                            dpi=110)

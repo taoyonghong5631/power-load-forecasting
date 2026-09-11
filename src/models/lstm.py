@@ -72,7 +72,7 @@ class LSTMForecaster(BaseForecaster):
 
     def _encode(self, load: np.ndarray, exog: np.ndarray) -> np.ndarray:
         """把 (载荷, 外生) 拼成模型输入矩阵 (n, 1+n_exog)。"""
-        scaled_load = self.scaler_y.transform(load.reshape(-1, 1))
+        scaled_load = self.scaler_level.transform(load.reshape(-1, 1))
         if exog.shape[1] == 0:
             return scaled_load
         return np.concatenate([scaled_load, self.scaler_x.transform(exog)], axis=1)
@@ -89,11 +89,22 @@ class LSTMForecaster(BaseForecaster):
                                       include_annual=self.cfg.include_annual)
         load = train_df["load"].to_numpy(dtype=float)
         exog = self._exog_frame(train_df)
+        self.target_mode = self.cfg.lstm.target_mode
 
-        self.scaler_y = StandardScaler().fit(load.reshape(-1, 1))
+        # 输入通道永远用"水平值"的标准化；预测目标可以是水平值或增量
+        self.scaler_level = StandardScaler().fit(load.reshape(-1, 1))
         self.scaler_x = StandardScaler().fit(exog) if exog.shape[1] else None
         features = self._encode(load, exog)
-        target = self.scaler_y.transform(load.reshape(-1, 1)).ravel()
+
+        if self.target_mode == "delta":
+            raw = np.diff(load, prepend=np.nan)
+            ok = ~np.isnan(raw)
+            self.scaler_y = StandardScaler().fit(raw[ok].reshape(-1, 1))
+            target = np.full(len(load), np.nan)
+            target[ok] = self.scaler_y.transform(raw[ok].reshape(-1, 1)).ravel()
+        else:
+            self.scaler_y = self.scaler_level
+            target = self.scaler_y.transform(load.reshape(-1, 1)).ravel()
 
         look_back = self.cfg.task.look_back
         idx = np.arange(look_back, len(target))
@@ -147,7 +158,8 @@ class LSTMForecaster(BaseForecaster):
 
             if verbose and (epoch + 1) % 5 == 0:
                 print("  [%s] epoch %3d/%d  train %.5f  val %.5f"
-                      % (self.name, epoch + 1, lcfg.epochs, train_loss, val_loss))
+                      % (self.name, epoch + 1, lcfg.epochs, train_loss, val_loss),
+                      flush=True)
             if bad_epochs >= lcfg.patience:
                 if verbose:
                     print("  [%s] 验证集 %d 轮无改善，提前停止于 epoch %d"
@@ -178,7 +190,7 @@ class LSTMForecaster(BaseForecaster):
         future_exog = self._exog_frame(future) if self.exog_cols else np.empty((horizon, 0))
 
         # 逐行特征：历史行 (载荷已知, 外生已知)，未来行 (载荷待填, 外生已知)
-        past_scaled = self.scaler_y.transform(past_load.reshape(-1, 1)).ravel()
+        past_scaled = self.scaler_level.transform(past_load.reshape(-1, 1)).ravel()
         exog_past = (self.scaler_x.transform(past_exog) if self.exog_cols
                      else np.empty((len(past_load), 0)))
         exog_fut = (self.scaler_x.transform(future_exog) if self.exog_cols
@@ -187,6 +199,7 @@ class LSTMForecaster(BaseForecaster):
         rows += [np.concatenate([[np.nan], e]) for e in exog_fut]
 
         preds: List[float] = []
+        cur_level = float(past_load[-1])
         self.model.eval()
         with torch.no_grad():
             for step in range(horizon):
@@ -195,10 +208,14 @@ class LSTMForecaster(BaseForecaster):
                 x = np.array(rows[step:step + look_back], dtype=float)
                 xb = torch.tensor(x, dtype=torch.float32).unsqueeze(0).to(self.device)
                 pred_scaled = float(self.model(xb).cpu().item())
-                preds.append(pred_scaled)
+                if self.target_mode == "delta":
+                    delta = float(self.scaler_y.inverse_transform([[pred_scaled]])[0, 0])
+                    cur_level = cur_level + delta
+                else:
+                    cur_level = float(self.scaler_y.inverse_transform([[pred_scaled]])[0, 0])
+                preds.append(cur_level)
                 if step + look_back < len(rows):
-                    rows[step + look_back][0] = pred_scaled
+                    rows[step + look_back][0] = float(
+                        self.scaler_level.transform([[cur_level]])[0, 0])
 
-        preds_inv = self.scaler_y.inverse_transform(
-            np.array(preds).reshape(-1, 1)).ravel()
-        return preds_inv
+        return np.asarray(preds, dtype=float)

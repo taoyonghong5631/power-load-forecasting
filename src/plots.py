@@ -152,7 +152,8 @@ def error_profile_figure(truths: np.ndarray, preds: np.ndarray,
 def metric_comparison_figure(table: pd.DataFrame,
                              title: str = "模型误差对比") -> go.Figure:
     """多指标分组柱状图（越小越好）。"""
-    metrics = [c for c in ["MAE", "RMSE", "MAPE(%)", "sMAPE(%)", "尖峰MAE"] if c in table.columns]
+    metrics = [c for c in ["MAE", "RMSE", "WAPE(%)", "sMAPE(%)", "尖峰MAE"]
+               if c in table.columns]
     fig = go.Figure()
     for i, m in enumerate(metrics):
         fig.add_trace(go.Bar(x=table.index, y=table[m], name=m,
@@ -234,10 +235,15 @@ def detection_benchmark_figure(bench: Dict[str, Dict[str, float]],
 def feature_importance_figure(imp: pd.DataFrame,
                               title: str = "XGBoost 特征重要性") -> go.Figure:
     imp = imp.iloc[::-1]
-    colors = ["#e4572e" if ("temp" in f or "hdd" in f or "cdd" in f)
-              else ("#17bebb" if f in ("hour", "dow", "month", "is_weekend", "is_holiday")
-                    or f.endswith(("_sin", "_cos")) else "#2e86ab")
-              for f in imp["feature"]]
+    def _color(f: str) -> str:
+        f = f.replace("tgt_", "")          # 直接多步里"目标时刻"的特征
+        if "temp" in f or f.startswith(("hdd", "cdd")):
+            return "#e4572e"
+        if f in ("hour", "dow", "month", "is_weekend", "is_holiday") or f.endswith(("_sin", "_cos")):
+            return "#17bebb"
+        return "#2e86ab"
+
+    colors = [_color(f) for f in imp["feature"]]
     fig = go.Figure(go.Bar(x=imp["importance"], y=imp["feature"], orientation="h",
                            marker_color=colors))
     fig.update_xaxes(title_text="importance")
