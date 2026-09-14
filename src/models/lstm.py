@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LSTM 递归多步预测（在原始脚本基础上补了：时间序验证集、早停、可选外生变量）。"""
+"""LSTM 递归多步预测：支持时间序验证集 + 早停，以及可选的外生变量通道。"""
 from __future__ import annotations
 
 from typing import Iterable, List, Optional, Tuple
@@ -108,7 +108,7 @@ class LSTMForecaster(BaseForecaster):
 
         look_back = self.cfg.task.look_back
         idx = np.arange(look_back, len(target))
-        # 按时间顺序切验证集，避免原始脚本 random_split 造成的信息泄漏
+        # 验证集必须按时间顺序切（不能随机打乱），否则相邻窗口互相泄漏
         n_val = max(24, int(len(idx) * lcfg.val_ratio))
         train_idx, val_idx = idx[:-n_val], idx[-n_val:]
 

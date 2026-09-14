@@ -76,10 +76,9 @@ class XGBConfig:
     target_mode: str = "delta"           # 'level' | 'delta'
     # 'direct'：每个预测步单独训练一个模型，预测"相对起点真实值的增量"，
     #   24 步全部锚定在起点上，不存在递归误差累积（日 Ahead 负荷预测的标准做法）。
-    # 'recursive'：只训练一步模型然后自己喂自己，等价于原脚本 LSTM 的做法。
-    # 实测（MT_001，30 个滚动起点）：recursive 池化 MAE 1.578 / WAPE 33.6%，
-    # direct 1.827 / 38.9%——这台表计的跳变基本不可预测，直接多步的"形状"预测
-    # 反而增加误差。两种策略都会在对比表里给出，不做筛选。
+    # 'recursive'：只训练一步模型，然后把自己的输出喂回去走完 24 步。
+    # 本项目实测（MT_001，30 个滚动起点）：recursive 池化 MAE 1.669，direct 1.604，
+    # 两者都列在对比表里；该表计跳变不可预测，哪种策略都无法显著超过持久性基线。
     strategy: str = "recursive"          # 'direct' | 'recursive'
 
 

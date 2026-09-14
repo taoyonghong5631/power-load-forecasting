@@ -7,8 +7,8 @@ UCI ElectricityLoadDiagrams20112014：葡萄牙 370 个客户 2011-01-01 ~ 2014-
 的 15 分钟用电量（单位 kW，即 15 分钟平均功率）。原始文件用 ``;`` 分隔、
 小数点用 ``,``，体积约 400+ MB。
 
-注意事项（踩过的坑）
---------------------
+需要注意的数据特性
+------------------
 * 很多客户（含 MT_001）在 2011 年很长一段时间读数恒为 0，这是**采集缺失**
   而不是真实零负荷，所以要先把 0 当缺失再插值。
 * 文件里的极端值用全局均值替换会抹平日周期，这里改成"标记 + 局部插值"。
@@ -39,7 +39,7 @@ def ensure_raw_data(cfg: Config) -> str:
     if os.path.exists(txt) and os.path.getsize(txt) > 1024:
         return txt
     script = os.path.join(ROOT, "scripts", "fetch_data.py")
-    print("[data] 本地缺失原始数据，开始下载（约 140 MB，服务器较慢，请耐心）...")
+    print("[data] 本地缺失原始数据，开始下载（zip 约 261 MB，服务器较慢，请耐心）...")
     ret = subprocess.call([sys.executable, script])
     if ret != 0 or not os.path.exists(txt):
         raise RuntimeError(
@@ -49,7 +49,7 @@ def ensure_raw_data(cfg: Config) -> str:
 
 
 def load_raw(cfg: Config, nrows: Optional[int] = None) -> pd.DataFrame:
-    """读取 15 分钟原始序列（只取时间列 + 目标客户列，避免读 400MB 全表）。"""
+    """读取 15 分钟原始序列（只取时间列 + 目标客户列，避免读 700MB 全表）。"""
     txt = ensure_raw_data(cfg)
     client_col = cfg.data.client_col
     print("[data] 读取 %s（第 %d 列客户）..." % (os.path.basename(txt), client_col))
@@ -128,7 +128,7 @@ def preprocess(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
 
 
 def hourly_series(cfg: Config, use_cache: bool = True) -> pd.DataFrame:
-    """小时级序列（带缓存，避免每次都去解析 400MB 文本）。"""
+    """小时级序列（带缓存，避免每次都去解析 700MB 文本）。"""
     min_hours = 24 * 30
     cache = os.path.join(CACHE_DIR, "hourly_client%d_%s.csv"
                          % (cfg.data.client_col, cfg.data.freq))

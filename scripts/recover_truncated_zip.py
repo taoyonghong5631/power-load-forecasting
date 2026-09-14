@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""从被截断的 zip 里抢救出尽可能多的数据。
+"""从下载中断的 zip 里恢复已收到的数据。
 
-背景：UCI 服务器慢且不支持 Range 断点续传，下载中断会留下一个「有本地头、没有中央目录」
-的半个 zip，标准工具直接报 BadZipFile。但 deflate 流本身是自同步的，可以手动
-解压出已下载部分对应的全部内容。
+zip 下载中断时会留下一个「有本地头、没有中央目录」的半成品，标准工具直接报 BadZipFile。
+但 deflate 流是自同步的，可以手动解压出已收到部分对应的全部内容——一次网络抖动
+不至于让整个下载白费。
 
 用法:
     python scripts/recover_truncated_zip.py data/LD2011_2014.txt.zip data/cache/partial.txt
@@ -21,7 +21,7 @@ def recover(zip_path: str, out_path: str) -> int:
         blob = fh.read()
 
     if blob[:4] != b"PK\x03\x04":
-        raise ValueError("不是 zip 本地文件头，无法抢救")
+        raise ValueError("不是 zip 本地文件头，无法恢复")
     name_len = struct.unpack_from("<H", blob, 26)[0]
     extra_len = struct.unpack_from("<H", blob, 28)[0]
     start = 30 + name_len + extra_len

@@ -6,7 +6,9 @@
 
 特点:
     * 先下载到 .part 临时文件，校验 zip 完整性后再原子替换目标文件，
-      避免网络中断留下「看似存在、实则损坏」的半个 zip。
+      不会留下「看似存在、实则损坏」的半个 zip。
+    * 网络中断时自动重试；重试仍失败则把已收到的部分解出来（见
+      recover_truncated_zip.py），不必从零再来。
     * 支持 --url 指定镜像。
 """
 from __future__ import annotations
@@ -29,16 +31,16 @@ CACHE_DIR = os.path.join(DATA_DIR, "cache")
 ZIP_PATH = os.path.join(DATA_DIR, "LD2011_2014.txt.zip")
 TXT_PATH = os.path.join(DATA_DIR, "LD2011_2014.txt")
 
-# 实测（国内网络）static 地址持续速度约 58 KB/s，旧地址约 22 KB/s，故 static 优先。
-# 该文件约 140 MB 且服务器不支持 Range 断点续传，下载慢属于正常现象。
+# static 地址的持续速度明显高于旧地址，故 static 优先。
+# 该文件约 261 MB，且服务器不支持 Range 断点续传，下载慢属于正常现象。
 MIRRORS = [
     "https://archive.ics.uci.edu/static/public/321/electricityloaddiagrams20112014.zip",
     "https://archive.ics.uci.edu/ml/machine-learning-databases/00321/LD2011_2014.txt.zip",
 ]
 DEFAULT_URL = MIRRORS[0]
 
-# 期望的完整文件大小（字节），用于发现"下到一半就断"的情况；未知则填 0
-EXPECTED_SIZE = 142_000_000
+# 期望的完整文件大小（字节），用于判断是否"下到一半就断"；未知则填 0
+EXPECTED_SIZE = 261_000_000
 EXPECTED_TOLERANCE = 0.5  # 允许 50% 偏差（服务器可能不返回 Content-Length）
 
 
@@ -130,7 +132,7 @@ def inspect_txt(path: str):
 
 
 def salvage(zip_partial: str, keep_name: str, txt_out: str):
-    """抢救中断的 zip：转存部分文件 -> 解出文本 -> 报告覆盖范围。"""
+    """处理中断的 zip：转存部分文件 -> 解出文本 -> 报告覆盖范围。"""
     keep = os.path.join(DATA_DIR, keep_name)
     if os.path.exists(keep):
         os.remove(keep)
@@ -138,10 +140,10 @@ def salvage(zip_partial: str, keep_name: str, txt_out: str):
     try:
         recover(keep, txt_out)
     except Exception as exc:
-        _log("  抢救失败: %s: %s" % (type(exc).__name__, exc))
+        _log("  恢复失败: %s: %s" % (type(exc).__name__, exc))
         return None
     rows, last_ts, mb = inspect_txt(txt_out)
-    _log("  抢救结果: %.0f MB 文本，约 %d 行，最后时间戳 %s" % (mb, rows, last_ts))
+    _log("  恢复结果: %.0f MB 文本，约 %d 行，最后时间戳 %s" % (mb, rows, last_ts))
     return {"zip": keep, "txt": txt_out, "rows": rows, "last_ts": last_ts, "mb": mb}
 
 
@@ -150,7 +152,7 @@ def main() -> int:
     ap.add_argument("--url", default=None, help="自定义下载地址（默认自动尝试多个镜像）")
     ap.add_argument("--force", action="store_true", help="即使 zip 已存在也重新下载")
     ap.add_argument("--min-rows", type=int, default=60000,
-                    help="抢救结果至少覆盖多少行才认为可用（默认 6 万行≈2013 年中）")
+                    help="恢复结果至少覆盖多少行才认为可用（默认 6 万行≈2013 年中）")
     args = ap.parse_args()
 
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -198,17 +200,17 @@ def main() -> int:
             if last_err is None:
                 break
         if last_err is not None:
-            # 全部失败时，退回"最完整的一次抢救结果"
+            # 全部失败时，退回"最完整的一次恢复结果"
             best = max(salvaged, key=lambda d: d["rows"]) if salvaged else None
             if best and best["rows"] >= args.min_rows:
                 if not os.path.exists(TXT_PATH):
                     shutil.copyfile(best["txt"], TXT_PATH)
-                _log("注意：完整文件始终没下下来，已使用抢救出的部分数据")
+                _log("注意：完整文件未下载成功，改用已恢复的部分数据")
                 _log("  覆盖到 %s（约 %d 行，%.0f MB）"
                      % (best["last_ts"], best["rows"], best["mb"]))
                 _log("  这不是完整数据集，结果会在 README 中标注。")
                 return 0
-            _log("所有镜像均失败且抢救结果不足（%s），请稍后重试或手动下载。"
+            _log("所有镜像均失败且恢复的数据不足（%s），请稍后重试或手动下载。"
                  % (best["last_ts"] if best else "无"))
             return 1
 

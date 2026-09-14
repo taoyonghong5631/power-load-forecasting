@@ -89,8 +89,8 @@ def overview_figure(df: pd.DataFrame, train_end: int, pred_index, y_true, y_pred
                              line=dict(color="#17bebb", width=2.6)))
     fig.add_trace(go.Scatter(x=pred_index, y=y_pred, name="预测值",
                              line=dict(color=COLOR_PRED, width=2.6, dash="dot")))
-    # 注意：不能用 add_vline(annotation_text=...)，plotly 会去对 Timestamp 求和，
-    # 与新版 pandas 不兼容；改用 shape + annotation 手工画。
+    # 注意：不要用 add_vline(annotation_text=...)，plotly 内部会对 Timestamp 求和，
+    # 在 pandas 2.x 上会报错；这里用 shape + annotation 手工画。
     split = df.index[train_end]
     fig.add_shape(type="line", x0=split, x1=split, y0=0, y1=1, yref="paper",
                   line=dict(color="#e4572e", dash="dash", width=1.5))

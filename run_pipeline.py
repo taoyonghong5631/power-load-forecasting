@@ -3,14 +3,14 @@
 
 用法示例
 --------
-    python run_pipeline.py                 # 完整实验（默认 MT_001，4 年小时级数据）
-    python run_pipeline.py --quick         # 冒烟测试，几分钟跑完
+    python run_pipeline.py                 # 完整实验（默认 MT_001，2012~2014 三年小时级数据）
+    python run_pipeline.py --quick         # 冒烟测试，1 分钟跑完
     python run_pipeline.py --synthetic     # 无数据/无网络时用合成数据演示
-    python run_pipeline.py --models xgb,arima --no-temperature
+    python run_pipeline.py --models naive,xgb_direct,arima --no-temperature
 
 产物
 ----
-    results/model_comparison.csv     三种模型的滚动起点对比表
+    results/model_comparison.csv     6 个模型（含 2 条朴素基线）的滚动起点对比表
     results/ablation_features.csv    日期特征/温度特征的消融表
     results/anomaly_benchmark.csv    3σ vs Isolation Forest 的检测指标
     results/figures/*.png|html       所有图表（PNG 供 README，HTML 可交互）

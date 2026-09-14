@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """异常检测：3σ 基线 vs Isolation Forest，并给出可量化的对比实验。
 
-原始脚本用的是"全局 3σ + 把异常值替换成全局均值"，在负荷这种强周期性数据上
-有两处硬伤：
+最朴素的"全局 3σ + 把异常值替换成全局均值"在负荷这种强周期性数据上有两处硬伤：
 
 1. 全局均值和标准差被早晚高峰撑大，阈值过宽，漏检白天的尖峰与夜间骤降；
 2. 用均值替换异常点会把整条曲线拉平，破坏日周期形态，下游预测会学坏。
 
-这里改成：
-    * 3σ 也升级为**滚动** 3σ（以 24h/168h 窗口的局部均值与标准差为准）；
+这里的做法：
+    * 3σ 基线用**滚动** 3σ（以 24 小时窗口的局部中位数与标准差为准），能跟上日周期；
     * 主检测器换成 Isolation Forest（多特征：负荷、相对滚动中位数的偏离、
       一阶差分、滚动波动率、小时/星期的周期编码）；
     * 检测到的异常**标记出来**而不是粗暴置为均值，交给下游决定是否剔除。
@@ -35,7 +34,7 @@ def rolling_3sigma_mask(values, k: float = 3.0, window: int = 24,
                         min_periods: Optional[int] = None) -> np.ndarray:
     """滚动 3σ：以窗口内的局部均值/标准差为基准，能跟上日周期。
 
-    ``window=None`` 时退化为原始脚本里的全局 3σ。
+    ``window=None`` 时退化为全局 3σ（作为最朴素的对照）。
     """
     s = pd.Series(np.asarray(values, dtype=float).ravel())
     if window is None:
@@ -63,7 +62,7 @@ def sigma_scores(values, window: Optional[int] = 24) -> np.ndarray:
 
 
 def global_3sigma_mask(values, k: float = 3.0) -> np.ndarray:
-    """原始脚本用的全局 3σ（保留做对比基线）。"""
+    """全局 3σ（保留做对比基线）。"""
     return rolling_3sigma_mask(values, k=k, window=None)
 
 

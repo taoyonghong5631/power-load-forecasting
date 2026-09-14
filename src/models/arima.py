@@ -76,9 +76,8 @@ class ARIMAForecaster(BaseForecaster):
     def __getstate__(self) -> dict:
         """序列化时丢掉拟合结果缓存。
 
-        踩过的坑：把 30 个 SARIMAX results 一起 joblib.dump 会生成 7 GB 的模型文件
-        （本项目真的把磁盘写满过一次）。拟合结果本来也不需要持久化——
-        换一个起点重新拟合即可。
+        一个 SARIMAX results 对象会带着完整数据和状态空间矩阵，30 个起点攒在一起
+        能让 joblib 文件涨到 GB 级。拟合结果本来也不需要持久化——换个起点重新拟合就行。
         """
         state = self.__dict__.copy()
         state["_cache"] = {}
