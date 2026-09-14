@@ -79,7 +79,7 @@ with st.sidebar:
                       index=0 if has_builtin else 2, label_visibility="collapsed")
     if source == "内置数据集 (UCI)" and not has_builtin:
         st.warning("本地没有 `data/LD2011_2014.txt`，点击运行会先自动下载"
-                   "约 140 MB（UCI 服务器很慢，可能要 30~60 分钟）。"
+                   "约 261 MB 的 zip（解压后 711 MB，UCI 服务器很慢，可能要 1 小时以上）。"
                    "想立刻体验请选『合成演示数据』。")
     uploaded = None
     if source == "上传文件":
@@ -124,7 +124,8 @@ with st.sidebar:
 # 主区域
 # --------------------------------------------------------------------------- #
 st.title("电力负荷短期预测与异常检测")
-st.caption("LSTM / XGBoost / ARIMA 滚动起点对比 · 日期与温度特征消融 · 3σ vs Isolation Forest")
+st.caption("朴素基线 / LSTM / XGBoost(递归+直接) / ARIMA 滚动起点对比 · "
+           "日期与温度特征消融 · 3σ vs Isolation Forest")
 
 cfg = get_config(data__client_col=int(client_col))
 cfg.use_temperature = use_temperature
@@ -352,11 +353,17 @@ if df is not None and len(df) > 0:
         st.markdown("""
 ### 这个界面做了什么
 
-* **预测**：LSTM（递归多步）、XGBoost（滞后+日期+温度特征，递归多步）、ARIMA/SARIMA
-  （每个起点用末尾窗口重新拟合）在同一批滚动起点上预测同样的窗口，指标可直接比较。
-* **特征工程**：日期特征（小时/星期/月份/节假日 + sin/cos 周期编码）与温度特征
-  （当前温度、昨日同时刻温度、24h 均温、采暖度 HDD18、制冷度 CDD22）。
+* **预测**：持久性 / 季节朴素两条朴素基线，加上 LSTM（递归多步）、XGBoost（递归多步与直接多步
+  两种策略）、ARIMA/SARIMA（每个起点用末尾窗口重新拟合），在同一批滚动起点上预测同样的窗口，
+  指标可直接比较。**朴素基线一定要一起看**：本项目 MT_001 长时间停在同一个读数上，
+  持久性基线很强，模型打不过它是要如实报告的。
+* **特征工程**：日期特征（小时/星期/月份/节假日 + sin/cos 周期编码，训练跨度不足一年会自动
+  关掉 month 类年度项）与温度特征（当前温度、昨日同时刻温度、24h 均温、采暖度 HDD18、制冷度 CDD22）。
+* **预测目标**：XGBoost / LSTM 默认预测增量 Δy（从"持久性"出发只学修正量），
+  XGBoost 另用训练段末尾 10% 的时间序验证集做早停。
 * **异常检测**：全局 3σ → 滚动 3σ → Isolation Forest（9 维特征，只在训练段拟合）。
+* **指标**：以池化 WAPE / MAE / RMSE 为主，MAPE 只作参考（这台表计测试段有 23% 的点 < 1 kW，
+  百分比误差会被近零点放大）。
 
 ### 上传文件格式
 

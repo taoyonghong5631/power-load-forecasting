@@ -4,7 +4,8 @@
 前置：先跑 ``python run_pipeline.py``，会在 results/ 下生成 pred_*.npz。
 
 用法:
-    python scripts/make_gif.py --model XGBoost --days 10
+    python scripts/make_gif.py --model "XGBoost_(递归多步)" --days 10
+    python scripts/make_gif.py --model ARIMA --days 10
 """
 from __future__ import annotations
 
@@ -35,17 +36,26 @@ GREY = "#9aa5b1"
 
 
 def load(model: str):
-    cand = [p for p in glob.glob(os.path.join(RESULTS, "pred_*.npz"))
-            if model.lower().replace(" ", "_") in os.path.basename(p).lower()]
+    """按模型名找预测文件：先精确匹配，再退回子串匹配。"""
+    files = glob.glob(os.path.join(RESULTS, "pred_*.npz"))
+    want = model.lower().replace(" ", "_")
+    exact = [p for p in files if os.path.basename(p)[5:-4].lower() == want]
+    cand = exact or [p for p in files if want in os.path.basename(p).lower()]
     if not cand:
-        raise SystemExit("没找到 %s 的预测结果，请先运行 python run_pipeline.py" % model)
+        avail = sorted(os.path.basename(p)[5:-4] for p in files)
+        raise SystemExit("没找到 %s 的预测结果。可选的模型名：%s\n"
+                         "请先运行 python run_pipeline.py"
+                         % (model, "、".join(avail) if avail else "（results/ 下没有任何 pred_*.npz）"))
+    if len(cand) > 1:
+        print("提示：%s 匹配到多个结果，使用 %s" % (model, os.path.basename(cand[0])))
     d = np.load(cand[0], allow_pickle=True)
     return d, os.path.basename(cand[0])
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="XGBoost")
+    ap.add_argument("--model", default="XGBoost_(递归多步)",
+                    help="results/pred_<模型名>.npz 里的模型名，如 XGBoost_(递归多步) / ARIMA")
     ap.add_argument("--days", type=int, default=10, help="GIF 覆盖的预测窗口数")
     ap.add_argument("--fps", type=float, default=2.5)
     ap.add_argument("--out", default="forecast_roll.gif")

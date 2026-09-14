@@ -1,7 +1,8 @@
 # ⚡ 电力负荷短期预测与异常检测
 
 基于 UCI `ElectricityLoadDiagrams20112014` 的**短期负荷预测**（未来 24 小时）与**用电异常检测**，
-包含 LSTM / XGBoost / ARIMA 三模型对比、日期与温度特征消融、3σ 与 Isolation Forest 的检测器对比，
+包含 6 个模型（持久性 / 季节朴素两条基线 + LSTM + XGBoost 的递归与直接两种多步策略 + ARIMA）
+在统一滚动起点上的对比、日期与温度特征消融、3σ 与 Isolation Forest 的检测器对比，
 以及一个可直接上传数据的 Streamlit 界面。
 
 项目从一个单文件脚本 `时序预测LSTM.py`（原始版本，保留在仓库里作对照）重构而来：
@@ -174,30 +175,45 @@ streamlit run app.py                          # 界面里选「合成演示数�
 
 ### 统一的评估协议
 
-三个模型都在**完全相同的预测窗口**上打分，指标才可比：
+**6 个模型**（2 条朴素基线 + LSTM + XGBoost×2 种多步策略 + ARIMA）在**完全相同的预测窗口**上打分，指标才可比：
 
 * 用 `train_ratio` 按时间切出训练段和测试段（默认 8:2，**不做随机打乱**）。
-* 在测试段上均匀取 `n_eval_origins` 个**滚动起点**，每个起点用"已知到该时刻"的信息
-  向后递归预测 `horizon` 步（默认 24 小时）。
-* 报告每个窗口的 MAE / RMSE / MAPE / sMAPE / 尖峰 MAE / R² 在起点上的平均值，
-  另附把所有窗口拼起来的池化指标。
+* 在测试段上均匀取 `n_eval_origins` 个**滚动起点**（默认 30 个），每个起点用"已知到该时刻"
+  的信息向后预测 `horizon` 步（默认 24 小时）。
+* 表格用**池化指标**：把 30 个窗口 × 24 步的点拼起来算一次。逐窗口算完再平均的 WAPE/R²
+  在 24 点的窗口上方差极大（一个恰好落在平台上的窗口就能把 R² 拉成很大的负数），不可比。
+  逐窗口指标仍完整保留在 `results/metrics_summary.json` 里。
 
-> **公平性说明**：LSTM 和 XGBoost 在训练段上**一次性训练**后用于所有起点（这是部署时的真实用法）；
-> ARIMA 在每个起点用末尾 `train_window` 小时重新拟合（这是 ARIMA 的标准 walk-forward 用法，
-> 否则参数会严重过期）。预测窗口完全一致，但这个差异在解读结果时要注意。
+> **公平性说明**：预测窗口、可用历史、指标代码对 6 个模型完全一致，差别只在训练方式：
+> * **朴素基线**不用训练，只取起点时刻（或昨天同时刻）的真实值；
+> * **LSTM / XGBoost** 在训练段上一次性训练后用于所有起点（部署时的真实用法）；
+> * **ARIMA** 在每个起点用末尾 `train_window` 小时重新拟合（ARIMA 的标准 walk-forward 用法，
+>   否则参数会严重过期），表里 269 秒的耗时就是这么来的。
 
 > **关于百分比误差**：MT_001 是台小负荷表计（均值 5.2 kW、中位数 2.2 kW；测试段有 23% 的点
 > < 1 kW，最低 0.32 kW）。这种数据上 **MAPE 会被近零点放大**——单点误差就能贡献上百个百分点，
 > 把整段 MAPE 拉到百分之几百。所以表格以 **WAPE（Σ|误差| / Σ|真值|）** 为主要百分比指标，
 > MAPE 仅作参考（分母加了"平均负荷 10%"的下限）。
 
-### 三个模型
+### 六个模型
 
 | 模型 | 输入 | 多步策略 | 说明 |
 | --- | --- | --- | --- |
-| LSTM | 过去 24 小时负荷（可选外生通道） | 递归 | 用**按时间顺序**切出的验证集 + 早停，修掉了原脚本 `random_split` 造成的信息泄漏 |
-| XGBoost | 滞后/滚动特征 + 日期 + 温度 | 递归 | 与 LSTM 共用同一个特征构造函数，杜绝训练/推理特征不一致 |
+| 持久性 (t-1) | — | 直接用起点值 | 朴素基线，整段输出 origin 时刻的真实值。**任何模型都该先打赢它** |
+| 季节朴素 (t-24) | — | 昨天同时刻 | 朴素基线，第 h 步用 `y[origin+h-24]` |
+| LSTM | 过去 24 小时负荷（可选外生通道） | 递归 | 目标为增量 Δy；时间序验证集 + 早停，修掉了原脚本 `random_split` 造成的信息泄漏 |
+| XGBoost (递归多步) | 滞后/滚动 + 日期 + 温度 | 递归 | 训练 1 步模型，再自己喂自己 24 步 |
+| XGBoost (直接多步) | 同上，再拼目标时刻的日历/温度 | 直接多步 | 每个 horizon 单独训练 24 个模型，全部锚定在起点真实值，没有误差累积 |
 | ARIMA | 单变量（可选温度外生） | 直接多步 `forecast` | `(1,1,1)(1,1,1,24)`，可用 `--auto-arima` 走 AIC 小网格选阶 |
+
+> **为什么预测增量 Δy 而不是绝对值**：MT_001 长时间停在同一个读数上，直接回归水平值会被
+> MSE 拉向条件均值，把平台和跳变一起抹平；改成预测 `y_t - y_{t-1}`，等于让模型从"持久性"
+> 出发只学修正量——ARIMA 的 `d=1` 是同一个道理。想切回绝对水平可以改
+> `xgb.target_mode` / `lstm.target_mode = 'level'`。
+>
+> **XGBoost 的早停**：从训练段末尾切 10% 作时间序验证集（`xgb.val_ratio`），
+> `early_stopping_rounds=30`。增量目标的信噪比很低，不早停会把噪声一起学进去；
+> 可用 `xgb.use_early_stopping=False` 关掉。
 
 ### 特征工程
 
@@ -207,10 +223,19 @@ calendar     hour、dow、month、is_weekend、is_holiday、hour/dow/month 的 s
 temperature  temp、temp_lag_24、temp_roll_mean_24、hdd_18、cdd_22
 ```
 
-所有滞后/滚动特征都从 `shift(1)` 起步，保证预测 t 时刻时只用 t 之前的信息
-（`tests/test_smoke.py::test_no_future_leakage` 有对应的回归测试）。
-递归预测时把预测值写回 `load` 列，再调用**同一个** `build_features`，
-所以单步特征与批量特征逐位相等（`test_next_step_row_matches_batch_features`）。
+**年度特征会自动开关**：`month` / `month_sin` / `month_cos` 只有训练段跨度 ≥ 365 天时才有意义，
+否则会退化成"记住训练期那几个月"。`run_pipeline.py` 按训练跨度自动决定（日志里会打印），
+也可以用 `--annual on/off` 强制。实测在一段 320 天的数据上，同一组日历特征去掉 month 项后
+MAE 从 7.17 降到 6.41，所以才加了这条规则。
+
+**训练与推理用同一套特征代码**：
+
+* 所有滞后/滚动特征都从 `shift(1)` 起步，保证预测 t 时刻时只用 t 之前的信息
+  （`tests/test_smoke.py::test_no_future_leakage` 有对应的回归测试）；
+* 递归策略把预测值写回 `load` 列，再调用**同一个** `build_features`，
+  所以单步特征与批量特征逐位相等（`test_next_step_row_matches_batch_features`）；
+* 直接多步策略只在起点算一次特征，第 h 步额外拼上"目标时刻的日历 + 温度"，
+  24 个模型互不干扰，也就不会出现递归那种误差滚雪球。
 
 ### 异常检测为什么不是简单换个模型
 
@@ -253,11 +278,11 @@ temperature  temp、temp_lag_24、temp_roll_mean_24、hdd_18、cdd_22
 │   ├── data.py                 # 下载/加载/重采样/清洗/温度/上传文件解析
 │   ├── features.py             # 滞后、滚动、日期、温度特征
 │   ├── anomaly.py              # 3σ / 滚动 3σ / Isolation Forest + 注入基准
-│   ├── metrics.py              # MAE/RMSE/MAPE/sMAPE/尖峰MAE/R²
+│   ├── metrics.py              # MAE/RMSE/WAPE/MAPE/sMAPE/尖峰MAE/R²
 │   ├── evaluate.py             # 滚动起点评估协议
 │   ├── plots.py                # 全部 Plotly 图（界面复用同一套）
 │   ├── registry.py             # 模型保存/加载
-│   └── models/                 # lstm.py / xgb.py / arima.py，统一接口
+│   └── models/                 # naive.py / lstm.py / xgb.py / arima.py，统一接口
 ├── scripts/
 │   ├── fetch_data.py           # 稳健下载（.part + zip 校验 + 原子替换）
 │   ├── recover_truncated_zip.py# 抢救被截断的 zip
@@ -272,12 +297,13 @@ temperature  temp、temp_lag_24、temp_roll_mean_24、hdd_18、cdd_22
 ## 常用命令
 
 ```bash
-python run_pipeline.py --quick                  # 小规模冒烟测试
-python run_pipeline.py --client-col 5           # 换一个客户
-python run_pipeline.py --models xgb,arima       # 只跑部分模型
-python run_pipeline.py --no-temperature         # 关掉温度特征
-python run_pipeline.py --auto-arima             # ARIMA 用 AIC 选阶
-python tests/test_smoke.py                      # 跑测试
+python run_pipeline.py --quick                          # 小规模冒烟测试
+python run_pipeline.py --client-col 5                   # 换一个客户
+python run_pipeline.py --models naive,xgb_direct,arima  # 只跑部分模型
+python run_pipeline.py --annual off                     # 关掉 month 类年度特征
+python run_pipeline.py --no-temperature                 # 关掉温度特征
+python run_pipeline.py --auto-arima                     # ARIMA 用 AIC 选阶
+python tests/test_smoke.py                              # 跑测试（10 项）
 ```
 
 ## 已知限制
@@ -288,14 +314,17 @@ python tests/test_smoke.py                      # 跑测试
   因此绝对值只用于横向比较检测器，不代表生产环境的真实检出率。
 * **ARIMA 每个起点都要重拟合**，在长测试段上很慢（本项目默认 30 个起点）；
   真实部署更常用的是"固定参数 + 状态空间在线更新"。
-* LSTM 是递归多步预测，**误差会随步长累积**（`03_horizon_error.png` 能看到），
-  长于 24 小时的预测建议改用直接多步或 Seq2Seq。
+* **这台表计上朴素基线最强**（见上一节）：突跳不可预测，任何"学形状"的模型都会在跳变点
+  比持久性错得更多。这是 MT_001 的特性，换成规律性强的客户结论可能反过来。
+* LSTM 仍用递归多步，**误差随步长累积**（`03_horizon_error.png` 能看到）；XGBoost 已经
+  提供了直接多步作对照，两种策略的结果都在表里，没有挑好的报。
 * 项目只用了 `MT_001` 一个客户。要做全网负荷预测需要把 370 个客户一起建模
   （或先聚类再分层预测）。
 
 ## 后续可做
 
-* 直接多步（direct multi-step）/ Seq2Seq / N-BEATS / TFT 与递归多步的对比
+* 「持久性 + 模型」的预测组合，权重在验证集上学（目前看最有希望的方向）
+* Seq2Seq / N-BEATS / TFT 与现有递归、直接多步的对比
 * 概率预测（分位数损失、Conformal Prediction）替代固定宽度置信区间
 * 异常检测接上告警策略：连续 N 点命中才报警，压掉单点误报
 * MLflow / DVC 做实验跟踪与数据版本管理
