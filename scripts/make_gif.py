@@ -24,7 +24,7 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS = os.path.join(ROOT, "results")
-OUT_DIR = os.path.join(ROOT, "results", "screenshots")
+OUT_DIR = os.path.join(RESULTS, "figures")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]

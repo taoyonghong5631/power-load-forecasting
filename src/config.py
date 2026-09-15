@@ -13,9 +13,8 @@ DATA_DIR = os.path.join(ROOT, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 RESULTS_DIR = os.path.join(ROOT, "results")
 FIG_DIR = os.path.join(RESULTS_DIR, "figures")
-SHOT_DIR = os.path.join(RESULTS_DIR, "screenshots")
 
-for _d in (DATA_DIR, CACHE_DIR, RESULTS_DIR, FIG_DIR, SHOT_DIR):
+for _d in (DATA_DIR, CACHE_DIR, RESULTS_DIR, FIG_DIR):
     os.makedirs(_d, exist_ok=True)
 
 

@@ -15,18 +15,18 @@
 | **加对比模型** | LSTM、XGBoost（递归多步 / 直接多步两种策略）、ARIMA/SARIMA（每个起点用末尾窗口重拟合），外加持久性与季节性朴素两条基线，全部在同一批滚动起点上预测同样的窗口 | `results/model_comparison.csv`、`results/figures/01_model_comparison.png` |
 | **加特征工程** | 日期特征（小时/星期/月份/周末/节假日 + sin-cos 周期编码）与温度特征（当前温度、昨日同时刻温度、24h 均温、HDD18、CDD22），做逐级消融 | `results/ablation_features.csv`、`results/figures/08_feature_ablation.png` |
 | **升级异常检测** | Isolation Forest（9 维特征，仅在训练段拟合）替换全局 3σ，并保留滚动 3σ 作中间档；用注入异常做量化对比 | `results/anomaly_benchmark.csv`、`results/figures/11_anomaly_benchmark.png` |
-| **Streamlit 界面** | Plotly 交互图 + CSV/TXT 上传 + 参数面板 + 结果下载 | `app.py`、`results/screenshots/forecast_roll.gif` |
-| **整理 GitHub** | 本 README、requirements、模块化目录、单元测试、结果截图与 GIF | 本文件、`tests/`、`results/screenshots/` |
+| **Streamlit 界面** | Plotly 交互图 + CSV/TXT 上传 + 参数面板 + 结果下载 | `app.py`、`results/figures/forecast_roll.gif` |
+| **整理 GitHub** | 本 README、requirements、模块化目录、单元测试、结果表格与图表 | 本文件、`tests/`、`results/figures/` |
 
 ## 结果速览
 
-![模型对比](results/screenshots/00_model_comparison_table.png)
+![模型对比](results/figures/00_model_comparison_table.png)
 
-![滚动预测动画](results/screenshots/forecast_roll.gif)
+![滚动预测动画](results/figures/forecast_roll.gif)
 
 <p align="center"><i>滚动 24 小时预测动画：左侧高亮当前预测窗口，右侧是该窗口的预测 vs 真实</i></p>
 
-![异常检测对比](results/screenshots/00c_anomaly_table.png)
+![异常检测对比](results/figures/00c_anomaly_table.png)
 
 ## 实验结果
 
@@ -78,7 +78,7 @@
 ```bash
 python scripts/fetch_data.py          # 校验/下载并解压数据
 python run_pipeline.py --client-col 1 --origins 30      # 约 7 分钟，默认跑 6 个模型
-python scripts/make_screenshots.py
+python scripts/make_tables.py
 python scripts/make_gif.py --model "XGBoost_(递归多步)" --days 10
 python scripts/update_readme_results.py     # 把 results/*.csv 写回本 README
 ```
@@ -135,7 +135,7 @@ python scripts/fetch_data.py
 python run_pipeline.py                        # 默认 MT_001，约 7 分钟
 
 # 4) 生成 README 用截图和 GIF
-python scripts/make_screenshots.py
+python scripts/make_tables.py
 python scripts/make_gif.py --model "XGBoost_(递归多步)" --days 10
 python scripts/update_readme_results.py
 
@@ -267,29 +267,37 @@ MAE 从 7.17 降到 6.41，所以才加了这条规则。
 
 ```
 .
-├── app.py                      # Streamlit 界面（Plotly 图 + 文件上传）
-├── run_pipeline.py             # 一键跑完整实验，产出所有表格和图
-├── 时序预测LSTM.py              # 单文件精简版：整条流程写在一个脚本里，便于快速通读
+├── README.md
+├── app.py                        # Streamlit 界面（Plotly 图 + 文件上传）
+├── run_pipeline.py               # 一键跑完整实验，产出所有表格和图
+├── 时序预测LSTM.py                # 单文件精简版：整条流程写在一个脚本里，便于快速通读
 ├── requirements.txt
+├── .gitignore
+├── .gitattributes
 ├── src/
-│   ├── config.py               # 所有参数集中在这里（dataclass）
-│   ├── data.py                 # 下载/加载/重采样/清洗/温度/上传文件解析
-│   ├── features.py             # 滞后、滚动、日期、温度特征
-│   ├── anomaly.py              # 3σ / 滚动 3σ / Isolation Forest + 注入基准
-│   ├── metrics.py              # MAE/RMSE/WAPE/MAPE/sMAPE/尖峰MAE/R²
-│   ├── evaluate.py             # 滚动起点评估协议
-│   ├── plots.py                # 全部 Plotly 图（界面复用同一套）
-│   ├── registry.py             # 模型保存/加载
-│   └── models/                 # naive.py / lstm.py / xgb.py / arima.py，统一接口
+│   ├── config.py                 # 所有参数集中在这里（dataclass）
+│   ├── data.py                   # 下载/加载/重采样/清洗/温度/上传文件解析
+│   ├── features.py               # 滞后、滚动、日期、温度特征
+│   ├── anomaly.py                # 3σ / 滚动 3σ / Isolation Forest + 注入基准
+│   ├── metrics.py                # MAE/RMSE/WAPE/MAPE/sMAPE/尖峰MAE/R²
+│   ├── evaluate.py               # 滚动起点评估协议
+│   ├── plots.py                  # 全部 Plotly 图（界面复用同一套）
+│   ├── registry.py               # 模型保存/加载
+│   └── models/                   # naive.py / lstm.py / xgb.py / arima.py，统一接口
 ├── scripts/
-│   ├── fetch_data.py           # 稳健下载（.part + zip 校验 + 原子替换）
-│   ├── recover_truncated_zip.py# 从下载中断的 zip 里恢复已收到的数据
-│   ├── make_screenshots.py     # 生成 README 用截图
-│   ├── make_gif.py             # 生成滚动预测 GIF
-│   └── update_readme_results.py# 把结果表写回 README
-├── tests/test_smoke.py         # 无依赖测试：特征一致性、无泄漏、各模型可跑
-├── data/                       # 原始数据与缓存（.gitignore 已排除）
-└── results/                    # 表格、图片、模型（screenshots 会提交）
+│   ├── fetch_data.py             # 下载 + 校验 + 解压原始数据
+│   ├── recover_truncated_zip.py  # 从下载中断的 zip 里恢复已收到的数据
+│   ├── make_tables.py            # 把结果表渲染成 PNG（README 用）
+│   ├── make_gif.py               # 生成滚动预测 GIF
+│   └── update_readme_results.py  # 把结果表写回 README
+├── tests/
+│   └── test_smoke.py             # 无依赖测试：特征一致性、无泄漏、各模型可跑
+├── data/                         # 原始数据与缓存（已 gitignore，不会上传）
+└── results/
+    ├── *.csv / *.json            # 指标表与运行配置
+    ├── figures/                  # 全部图表 PNG + 表格图 + GIF（README 引用这里）
+    ├── pred_*.npz                # 各模型的逐窗口预测结果
+    └── models/                   # 训练好的模型（已 gitignore）
 ```
 
 ## 常用命令
@@ -314,7 +322,7 @@ python tests/test_smoke.py                              # 跑测试（10 项）
   真实部署更常用的是"固定参数 + 状态空间在线更新"。
 * **这台表计上朴素基线最强**（见上一节）：突跳不可预测，任何"学形状"的模型都会在跳变点
   比持久性错得更多。这是 MT_001 的特性，换成规律性强的客户结论可能反过来。
-* LSTM 用递归多步，**误差随步长累积**（`03_horizon_error.png` 能看到）；XGBoost 同时提供了
+* LSTM 用递归多步，**误差随步长累积**（`results/figures/03_horizon_error.png` 能看到）；XGBoost 同时提供了
   直接多步作对照，两种策略的结果都列在表里。
 * 项目只用了 `MT_001` 一个客户。要做全网负荷预测需要把 370 个客户一起建模
   （或先聚类再分层预测）。

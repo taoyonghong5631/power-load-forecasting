@@ -171,7 +171,7 @@ def main() -> int:
         res["metrics"]["train_seconds"] = train_seconds
         results[label] = res
         trained[label] = model
-        # 落盘预测结果，供 scripts/make_gif.py、scripts/make_screenshots.py 复用
+        # 落盘预测结果，供 scripts/make_gif.py 复用
         np.savez_compressed(
             os.path.join(RESULTS_DIR, "pred_%s.npz" % label.replace(" ", "_")),
             preds=res["preds"], truths=res["truths"], origins=np.asarray(res["origins"]),
