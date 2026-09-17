@@ -154,6 +154,14 @@ with st.sidebar:
     _env_path = _llm_cfg.llm.env_path
     if has_api_key(_llm_cfg):
         st.success("已检测到 API 密钥，AI 功能可用")
+        if st.button("测试连接", key="btn_llm_test", width="stretch"):
+            from src.llm.client import test_connection
+            with st.spinner("正在测试..."):
+                _r = test_connection(_llm_cfg)
+            if _r["ok"]:
+                st.success("连接正常（%.2fs，模型 %s）" % (_r["seconds"], _r["model"]))
+            else:
+                st.error("连接失败：%s" % _r["error"])
     else:
         st.warning("未检测到 API 密钥：日报会退回本地模板，问答不可用。")
         with st.expander("为什么检测不到？（排查用）"):
