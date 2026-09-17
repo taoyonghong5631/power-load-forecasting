@@ -68,12 +68,13 @@ def test_chat_history_survives_rerun():
     os.environ[OFFLINE] = "1"          # 不调用真实大模型
     try:
         at = _fresh()
-        # 先点一个快捷问题
-        quick = [b for b in at.button if "最异常" in b.label][0]
-        quick.click()
+        # 快捷问题按钮 = 以问号结尾的按钮（不依赖具体文案，文案改了也不会失效）
+        quick = [b for b in at.button if b.label.strip().endswith(("？", "?"))]
+        assert len(quick) >= 2, "没找到快捷提问按钮：%s" % [b.label for b in at.button]
+        quick[0].click()
         at.run()
         # 再点一个，验证多轮
-        quick2 = [b for b in at.button if "哪个模型" in b.label][0]
+        quick2 = [b for b in at.button if b.label.strip().endswith(("？", "?"))][1]
         quick2.click()
         at.run()
         # 关键：再来一次普通重跑（等价于用户点别的按钮/刷新）

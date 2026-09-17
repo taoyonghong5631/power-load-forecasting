@@ -72,9 +72,19 @@ TOOL_SCHEMAS: List[dict] = [
         "name": "plot_forecast",
         "description": "画出某个日期附近的「预测 vs 实际」对比图，并返回该窗口的误差。",
         "parameters": {"type": "object", "properties": {
-            "date": {"type": "string", "description": "日期 YYYY-MM-DD"},
+            "date": {"type": "string",
+                     "description": "日期 YYYY-MM-DD；省略则画最近一次预测"},
             "model": {"type": "string", "description": "模型名，可省略（默认用最优模型）"},
-        }, "required": ["date"]},
+        }},
+    }},
+    {"type": "function", "function": {
+        "name": "forecast_error_profile",
+        "description": "统计预测误差在时间上的分布：一天里哪几个小时误差最大、"
+                       "预测到第几步误差最大。用于回答「哪些时段误差大」「误差怎么变化」。",
+        "parameters": {"type": "object", "properties": {
+            "model": {"type": "string", "description": "模型名，可省略（默认用最优模型）"},
+            "top_k": {"type": "integer", "description": "返回误差最大的几个，默认 5"},
+        }},
     }},
     {"type": "function", "function": {
         "name": "plot_anomalies",
@@ -99,6 +109,7 @@ TOOL_LABELS = {
     "get_feature_importance": "查特征重要性",
     "get_temperature_relation": "查温度关系",
     "plot_forecast": "画预测对比图",
+    "forecast_error_profile": "分析误差分布",
     "plot_anomalies": "画异常点图",
 }
 
@@ -184,8 +195,11 @@ class ToolBox:
             if "IF异常分" in r and pd.notna(r["IF异常分"]):
                 item["IF异常分"] = round(float(r["IF异常分"]), 4)
             items.append(item)
+        counts = {c: int(ap[c].sum()) for c in cols}
         out = {"异常点总数": int(len(ap)),
                "区间": [str(ap.index.min()), str(ap.index.max())],
+               "各检测器检出数": counts,
+               "同时被两个以上检测器报警的点数": int((ap["报警数"] >= 2).sum()),
                "最严重的%d个" % len(items): items}
         self._log("find_anomalies", {"top_k": top_k, "start": start, "end": end},
                   "共 %d 个异常点" % len(ap))
@@ -231,8 +245,9 @@ class ToolBox:
                   "相关系数 %.3f" % out.get("相关系数", 0))
         return out
 
-    def plot_forecast(self, date: str, model: Optional[str] = None) -> dict:
-        """找出离指定日期最近的那个预测窗口，画「预测 vs 实际」。"""
+    def plot_forecast(self, date: Optional[str] = None,
+                      model: Optional[str] = None) -> dict:
+        """画「预测 vs 实际」。不给日期时画最近一次预测窗口。"""
         from .. import plots
         if not self.hub.predictions:
             return {"说明": "没有预测结果文件（results/pred_*.npz）"}
@@ -243,8 +258,11 @@ class ToolBox:
         stamps, preds, truths = p["stamps"], p["preds"], p["truths"]
         if stamps is None:
             return {"说明": "预测文件里没有时间戳"}
-        target = pd.Timestamp(date)
-        k = int(np.argmin(np.abs((pd.to_datetime(stamps) - target).days)))
+        if date:
+            target = pd.Timestamp(date)
+            k = int(np.argmin(np.abs((pd.to_datetime(stamps) - target).days)))
+        else:
+            k = len(preds) - 1          # 最近一次
         start = pd.Timestamp(stamps[k])
         times = pd.date_range(start, periods=preds.shape[1], freq="h")
         fig = plots.forecast_figure(times, truths[k], preds[k],
@@ -257,6 +275,61 @@ class ToolBox:
                "预测峰值_kW": round(float(np.nanmax(preds[k])), 2), "图表": name}
         self._log("plot_forecast", {"date": date, "model": model},
                   "起点 %s，MAE %.2f" % (start, mae))
+        return out
+
+    def forecast_error_profile(self, model: Optional[str] = None,
+                               top_k: int = 5) -> dict:
+        """误差分布：一天里哪几个小时误差最大、预测到第几步误差最大。
+
+        回答「哪些时段误差最大」——之前没有这个工具时，模型只能说
+        「只有窗口级汇总，无法给出逐小时误差」。
+        """
+        if not self.hub.predictions:
+            return {"说明": "没有预测结果文件（results/pred_*.npz）"}
+        model = model or self.hub.best_model_name()
+        if model not in self.hub.predictions:
+            model = list(self.hub.predictions)[0]
+        p = self.hub.predictions[model]
+        preds, truths, stamps = p["preds"], p["truths"], p["stamps"]
+        if preds is None or not len(preds):
+            return {"说明": "该模型没有可用的预测结果"}
+
+        err = np.abs(truths - preds)                       # (窗口数, 步长)
+        by_step = np.nanmean(err, axis=0)
+        by_hour: Dict[int, list] = {}
+        if stamps is not None:
+            for k, s in enumerate(pd.to_datetime(stamps)):
+                for h in range(err.shape[1]):
+                    hour = int((s + pd.Timedelta(hours=h + 1)).hour)
+                    by_hour.setdefault(hour, []).append(err[k, h])
+        hour_mean = {h: float(np.nanmean(v)) for h, v in by_hour.items()}
+        worst_hours = sorted(hour_mean.items(), key=lambda x: -x[1])[:int(top_k)]
+        worst_steps = sorted(enumerate(by_step, 1), key=lambda x: -x[1])[:int(top_k)]
+        out = {
+            "模型": model,
+            "统计口径": "把 %d 个预测窗口的绝对误差分别按「一天中的小时」和"
+                        "「预测步长」取平均" % len(preds),
+            "误差最大的时段": [
+                {"时刻": "%02d:00-%02d:00" % (h, (h + 1) % 24),
+                 "平均绝对误差_kW": round(v, 3)} for h, v in worst_hours],
+            "误差最大的预测步长": [
+                {"第几步": int(s), "平均绝对误差_kW": round(float(v), 3)}
+                for s, v in worst_steps],
+            "整体": {"MAE_kW": round(float(np.nanmean(err)), 3),
+                     "RMSE_kW": round(float(np.sqrt(np.nanmean((truths - preds) ** 2))), 3)},
+            "说明": "步长越大误差一般越大（递归多步的累积效应）；"
+                    "按小时统计可以看出早晚高峰是否更容易预测错",
+        }
+        # 本项目所有滚动起点都从同一钟点出发（例如统一 20:00 发布次日预测），
+        # 这时"按小时"和"按步长"本质是同一件事，要说清楚，避免被当成巧合
+        if stamps is not None and len({pd.Timestamp(s).hour for s in stamps}) == 1:
+            hour0 = pd.Timestamp(stamps[0]).hour
+            out["说明"] = ("本次评估的所有预测窗口都从 %02d:00 出发，所以"
+                           "「误差最大的时段」与「误差最大的步长」排序一致——"
+                           "两者是同一组数据的不同叫法。" % hour0)
+        self._log("forecast_error_profile", {"model": model, "top_k": top_k},
+                  "最大误差时段 %02d:00，MAE %.2f" % (worst_hours[0][0], worst_hours[0][1])
+                  if worst_hours else "无数据")
         return out
 
     def plot_anomalies(self, days: int = 14) -> dict:

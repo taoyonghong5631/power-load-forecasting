@@ -73,6 +73,8 @@ def test_all_tools_return_dict():
         ("get_feature_importance", {"top_k": 5}),
         ("get_temperature_relation", {"days": 30}),
         ("plot_forecast", {"date": "2014-09-15"}),
+        ("plot_forecast", {}),                      # 不传日期 = 画最近一次
+        ("forecast_error_profile", {"top_k": 3}),
         ("plot_anomalies", {"days": 7}),
         ("不存在的工具", {}),
     ]
@@ -82,6 +84,7 @@ def test_all_tools_return_dict():
         json.dumps(out, ensure_ascii=False, default=str)   # 必须可序列化
     assert len(box.figures) >= 1, "画图工具没有产出 figure"
     assert tool_names()[0] == "describe_dataset"
+    assert "forecast_error_profile" in tool_names()
     assert all(t["type"] == "function" for t in TOOL_SCHEMAS)
 
 
