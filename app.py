@@ -334,7 +334,10 @@ if df is not None and len(df) > 0:
                                                        best["timestamps"]),
                             width="stretch")
 
-            xgb = trained.get("XGBoost")
+            # 注意：这里不能用 if run 分支里的局部变量 trained——用户点任何按钮
+            # 触发重跑时 run 为 False，那个变量根本不存在，会直接 NameError
+            trained_models = st.session_state.get("trained", {})
+            xgb = trained_models.get("XGBoost")
             if xgb is not None and hasattr(xgb, "feature_importance"):
                 st.plotly_chart(plots.feature_importance_figure(xgb.feature_importance(22)),
                                 width="stretch")
