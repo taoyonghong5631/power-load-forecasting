@@ -24,3 +24,12 @@ results/figures/*.html
 # 临时
 .ipynb_checkpoints/
 *.log
+
+# 密钥（绝对不能提交）
+.env
+*.env
+!.env.example
+
+# 缓存
+__pycache__/
+.pytest_cache/

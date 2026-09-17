@@ -28,6 +28,11 @@ from src.anomaly import (benchmark_detectors, build_anomaly_features,
 from src.config import RESULTS_DIR, get_config
 from src.data import get_dataset, parse_uploaded_file, synthetic_dataset
 from src.evaluate import evaluate_model, make_origins, results_to_table, train_end_index
+from src.llm.agent import attribute_anomaly, run_agent
+from src.llm.client import LLMUnavailable, has_api_key
+from src.llm.context import DataHub, build_daily_brief
+from src.llm.report import generate_report, stream_report, template_report
+from src.llm.tools import ToolBox
 from src.models import build_model
 from src.registry import load_model
 
@@ -51,6 +56,33 @@ def load_builtin(client_col: int, use_temperature: bool):
 @st.cache_data(show_spinner=False)
 def load_uploaded(payload: bytes, name: str) -> pd.DataFrame:
     return parse_uploaded_file(io.BytesIO(payload), name)
+
+
+@st.cache_resource(show_spinner=False)
+def get_hub(client_col: int, stamp: float):
+    """加载 LLM 用的数据中枢。
+
+    ``stamp`` 是 results/ 的时间戳，流水线重跑后缓存会自动失效。
+    """
+    return DataHub(get_config(data__client_col=client_col))
+
+
+def _results_stamp() -> float:
+    path = os.path.join(RESULTS_DIR, "model_comparison.csv")
+    return os.path.getmtime(path) if os.path.exists(path) else 0.0
+
+
+def render_ai_answer(payload: dict, key_prefix: str) -> None:
+    """把一次 AI 回答（正文 + 图 + 工具调用记录）渲染出来。"""
+    st.markdown(payload.get("text", "（没有内容）"))
+    figs = st.session_state.setdefault("ai_figures", {})
+    for name in payload.get("figures", []):
+        if name in figs:
+            st.plotly_chart(figs[name], width="stretch")
+    trace = payload.get("trace") or []
+    if trace:
+        with st.expander("🔧 它调用了哪些工具（%d 次）" % len(trace)):
+            st.dataframe(pd.DataFrame(trace), width="stretch")
 
 
 def dataset_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -117,6 +149,13 @@ with st.sidebar:
     contamination = st.slider("Isolation Forest 预期异常比例", 0.001, 0.05, 0.01,
                               step=0.001, format="%.3f")
 
+    st.subheader("6. AI 助手")
+    if has_api_key(get_config()):
+        st.success("已检测到 API 密钥，AI 功能可用")
+    else:
+        st.warning("未检测到 API 密钥：日报会退回本地模板，问答不可用。"
+                   "在项目根目录 `.env` 里填 `DEEPSEEK_API_KEY=...` 后重启。")
+
     run = st.button("🚀 开始训练与预测", type="primary", width="stretch")
 
 
@@ -171,8 +210,8 @@ if df is not None and len(df) > 48:
     cfg.include_annual = _span_days >= 365      # 训练不足一年时关掉 month 特征
 
 if df is not None and len(df) > 0:
-    tab_data, tab_forecast, tab_anomaly, tab_about = st.tabs(
-        ["📊 数据概览", "📈 预测对比", "🚨 异常检测", "ℹ️ 说明"])
+    tab_data, tab_forecast, tab_anomaly, tab_ai, tab_about = st.tabs(
+        ["📊 数据概览", "📈 预测对比", "🚨 异常检测", "🤖 智能问答", "ℹ️ 说明"])
 
     # ------------------------------ 数据概览 ------------------------------ #
     with tab_data:
@@ -284,6 +323,24 @@ if df is not None and len(df) > 0:
                 st.plotly_chart(plots.feature_importance_figure(xgb.feature_importance(22)),
                                 width="stretch")
 
+        # AI 日报：只要 results/ 里有实验结果就能生成，不依赖本次是否点了训练
+        st.divider()
+        st.subheader("🤖 AI 分析日报")
+        st.caption("把实验结果交给大模型写成调度员能直接读的自然语言总结。"
+                   "所有数字都由本程序算好后放进提示词，模型只负责组织语言和推测可能原因。")
+        hub_charts = get_hub(int(client_col), _results_stamp())
+        if not hub_charts.ready:
+            st.info("还没有实验结果，请先运行 `python run_pipeline.py`，"
+                    "或在左侧点『开始训练与预测』。")
+        else:
+            c1, c2 = st.columns([1, 3])
+            if c1.button("生成分析日报", type="primary", key="btn_daily_report"):
+                st.session_state["report_text"] = None
+                with st.spinner("正在生成日报..."):
+                    st.write_stream(stream_report(hub_charts, cfg, hours=24))
+            with c2.expander("查看喂给模型的数据包（就是这些数字，模型不做算术）"):
+                st.json(build_daily_brief(hub_charts, hours=24))
+
     # ------------------------------ 异常检测 ------------------------------ #
     with tab_anomaly:
         if df is None:
@@ -347,6 +404,72 @@ if df is not None and len(df) > 0:
                                detail.to_csv().encode("utf-8-sig"),
                                file_name="anomaly_detail.csv", mime="text/csv")
             st.dataframe(detail[mask_if].head(50), width="stretch")
+
+            st.divider()
+            st.subheader("🔍 AI 自动归因")
+            st.caption("让 Agent 自己去查异常点、同期温度和模型误差，给出可能原因与核查建议。")
+            if st.button("对最严重的异常点做自动归因", key="btn_attribution"):
+                hub_an = get_hub(int(client_col), _results_stamp())
+                if not hub_an.ready:
+                    st.warning("还没有 results/ 产物，请先运行 `python run_pipeline.py`。")
+                else:
+                    box = ToolBox(hub_an, cfg)
+                    with st.spinner("Agent 正在取证分析..."):
+                        ans = attribute_anomaly(box, cfg, top_k=5)
+                    st.session_state.setdefault("ai_figures", {}).update(box.figures)
+                    render_ai_answer(ans, "attr")
+
+    # ------------------------------ 智能问答 ------------------------------ #
+    with tab_ai:
+        hub_ai = get_hub(int(client_col), _results_stamp())
+        if not hub_ai.ready:
+            st.warning("还没有可用的实验结果。请先运行 `python run_pipeline.py`，"
+                       "或在左侧点『开始训练与预测』生成 results/。")
+        else:
+            if not has_api_key(cfg):
+                st.error("未检测到 API 密钥：请在项目根目录的 `.env` 里填 "
+                         "`DEEPSEEK_API_KEY=你的密钥`，然后重启本应用。")
+            st.caption("助手会调用项目里写好的函数去查真实数据，回答里的数字都来自计算结果，"
+                       "不是模型编的。点开每条回答下面的『工具调用』能看到它查了什么。")
+
+            quick = ["MT_001 最近一个月最异常的时段是什么时候？",
+                     "温度和负荷是什么关系？升温 10℃ 负荷会变化多少？",
+                     "现在哪个模型最准？为什么？",
+                     "最近一次 24 小时预测里，哪些时段误差最大？"]
+            qcols = st.columns(2)
+            for i, q in enumerate(quick):
+                if qcols[i % 2].button(q, key="quick_%d" % i, width="stretch"):
+                    st.session_state["pending_question"] = q
+
+            for i, msg in enumerate(st.session_state.setdefault("chat_history", [])):
+                with st.chat_message(msg["role"]):
+                    render_ai_answer(msg, "h%d" % i)
+
+            question = st.chat_input("用自然语言提问，例如：2014 年 5 月 26 日那天的预测准吗？")
+            if st.session_state.get("pending_question"):
+                question = st.session_state.pop("pending_question")
+
+            if question:
+                st.session_state.chat_history.append(
+                    {"role": "user", "content": question})
+                with st.chat_message("user"):
+                    st.markdown(question)
+                box = ToolBox(hub_ai, cfg)
+                with st.chat_message("assistant"):
+                    with st.spinner("正在查数据并组织回答..."):
+                        ans = run_agent(question, box, cfg,
+                                        history=st.session_state.chat_history)
+                    st.session_state.setdefault("ai_figures", {}).update(box.figures)
+                    render_ai_answer(ans, "new")
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": ans.get("text", ""),
+                     "figures": ans.get("figures", []), "trace": ans.get("trace", [])})
+                st.rerun()
+
+            if st.session_state.get("chat_history") and st.button("清空对话", key="clear_chat"):
+                st.session_state["chat_history"] = []
+                st.session_state["ai_figures"] = {}
+                st.rerun()
 
     # ------------------------------ 说明 ------------------------------ #
     with tab_about:

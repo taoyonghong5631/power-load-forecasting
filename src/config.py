@@ -112,6 +112,26 @@ class TemperatureConfig:
 
 
 @dataclass
+class LLMConfig:
+    """大模型配置。默认 DeepSeek：国内直连、OpenAI 兼容协议、价格极低。
+
+    换服务商只改这三行即可（都提供 OpenAI 兼容接口）：
+        智谱 GLM   base_url=https://open.bigmodel.cn/api/paas/v4   model=glm-4-flash
+        通义千问   base_url=https://dashscope.aliyuncs.com/compatible-mode/v1  model=qwen-turbo
+        Kimi       base_url=https://api.moonshot.cn/v1             model=moonshot-v1-8k
+    """
+    provider: str = "deepseek"
+    base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-chat"
+    api_key_env: str = "DEEPSEEK_API_KEY"
+    temperature: float = 0.3
+    max_tokens: int = 2000
+    timeout: int = 90
+    max_tool_rounds: int = 5          # Agent 最多调用几轮工具
+    env_path: str = os.path.join(ROOT, ".env")
+
+
+@dataclass
 class Config:
     data: DataConfig = field(default_factory=DataConfig)
     task: TaskConfig = field(default_factory=TaskConfig)
@@ -120,6 +140,7 @@ class Config:
     arima: ARIMAConfig = field(default_factory=ARIMAConfig)
     anomaly: AnomalyConfig = field(default_factory=AnomalyConfig)
     temperature: TemperatureConfig = field(default_factory=TemperatureConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     use_calendar: bool = True
     use_temperature: bool = True
     # 年度特征（month / month_sin / month_cos）需要训练集覆盖至少一整年才有意义，

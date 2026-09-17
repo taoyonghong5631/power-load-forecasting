@@ -76,6 +76,17 @@
     "timeout": 60,
     "cache_path": "C:\\Users\\陶永宏\\Desktop\\时序预测 电力负荷预测\\data\\cache\\temperature_lisbon.csv"
   },
+  "llm": {
+    "provider": "deepseek",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "temperature": 0.3,
+    "max_tokens": 2000,
+    "timeout": 90,
+    "max_tool_rounds": 5,
+    "env_path": "C:\\Users\\陶永宏\\Desktop\\时序预测 电力负荷预测\\.env"
+  },
   "use_calendar": true,
   "use_temperature": true,
   "include_annual": true,

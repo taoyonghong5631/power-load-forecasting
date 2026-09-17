@@ -17,6 +17,7 @@
 | **升级异常检测** | Isolation Forest（9 维特征，仅在训练段拟合）替换全局 3σ，并保留滚动 3σ 作中间档；用注入异常做量化对比 | `results/anomaly_benchmark.csv`、`results/figures/11_anomaly_benchmark.png` |
 | **Streamlit 界面** | Plotly 交互图 + CSV/TXT 上传 + 参数面板 + 结果下载 | `app.py`、`results/figures/forecast_roll.gif` |
 | **整理 GitHub** | 本 README、requirements、模块化目录、单元测试、结果表格与图表 | 本文件、`tests/`、`results/figures/` |
+| **AI 能力** | AI 分析日报、智能问答、异常自动归因三件套，走 Function Calling 而不是 RAG | `src/llm/`、`scripts/ai_report.py`、`results/daily_report_example.md` |
 
 ## 结果速览
 
@@ -39,11 +40,11 @@
 | 模型 | MAE | RMSE | WAPE(%) | MAPE(%) | sMAPE(%) | 尖峰MAE | R2 | 窗口数 | 耗时(s) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | **持久性 (t-1)** | 1.238 | 2.600 | 26.372 | 69.543 | 40.297 | 2.015 | 0.806 | 30.000 | 0.001 |
-| **ARIMA** | 1.298 | 2.451 | 27.667 | 65.534 | 39.775 | 2.526 | 0.828 | 30.000 | 266.365 |
-| **XGBoost (直接多步)** | 1.604 | 2.847 | 34.184 | 93.322 | 43.457 | 3.407 | 0.768 | 30.000 | 1.385 |
-| **XGBoost (递归多步)** | 1.669 | 2.885 | 35.574 | 114.845 | 46.245 | 2.200 | 0.761 | 30.000 | 7.477 |
-| **LSTM** | 1.678 | 2.919 | 35.766 | 110.602 | 47.701 | 2.865 | 0.756 | 30.000 | 0.868 |
-| **季节朴素 (t-24)** | 1.808 | 4.045 | 38.528 | 77.953 | 40.219 | 3.202 | 0.531 | 30.000 | 0.001 |
+| **ARIMA** | 1.298 | 2.451 | 27.667 | 65.534 | 39.775 | 2.526 | 0.828 | 30.000 | 281.777 |
+| **XGBoost (直接多步)** | 1.604 | 2.847 | 34.184 | 93.322 | 43.457 | 3.407 | 0.768 | 30.000 | 1.486 |
+| **XGBoost (递归多步)** | 1.669 | 2.885 | 35.574 | 114.845 | 46.245 | 2.200 | 0.761 | 30.000 | 8.338 |
+| **LSTM** | 1.678 | 2.919 | 35.766 | 110.602 | 47.701 | 2.865 | 0.756 | 30.000 | 0.940 |
+| **季节朴素 (t-24)** | 1.808 | 4.045 | 38.528 | 77.953 | 40.219 | 3.202 | 0.531 | 30.000 | 0.000 |
 
 ### 2. 特征工程消融（XGBoost）
 
@@ -139,7 +140,10 @@ python scripts/make_tables.py
 python scripts/make_gif.py --model "XGBoost_(递归多步)" --days 10
 python scripts/update_readme_results.py
 
-# 5) 打开交互界面
+# 5) （可选）配置大模型，启用 AI 日报与智能问答
+#    把 .env.example 复制成 .env，填入自己的 API 密钥
+
+# 6) 打开交互界面
 streamlit run app.py
 ```
 
@@ -263,6 +267,55 @@ MAE 从 7.17 降到 6.41，所以才加了这条规则。
 即把两者的报警条数拉到同一水平）下的 Precision / Recall / F1 —— 否则 3σ 的 `k=3`
 和 IF 的 `contamination` 是两套完全不同的工作点，直接比 F1 没有意义。
 
+## AI 能力：日报 / 问答 / 自动归因
+
+在预测与异常检测之上接了一层大模型能力。**所有数字仍由本项目的 Python 代码算出**，
+模型只负责组织语言和推测可能原因——日报与回答里出现的每个数值都能在 `results/` 里找到出处。
+
+| 功能 | 入口 | 做什么 |
+| --- | --- | --- |
+| **AI 分析日报** | 界面「📈 预测对比」页 → `生成分析日报`；或命令行 `python scripts/ai_report.py` | 把负荷趋势、温度条件、异常点、模型表现打包成 JSON，交给大模型写成调度员能直接读的日报 |
+| **智能问答** | 界面「🤖 智能问答」页 | 自然语言提问，模型自己决定调哪些查询函数（负荷查询、异常排行、模型对比、特征重要性、画图），回答里的数字全部来自计算结果 |
+| **异常自动归因** | 界面「🚨 异常检测」页 → `自动归因` | Agent 按固定顺序取证（异常点 → 同期温度 → 温度关系 → 模型误差），输出「可能原因 + 核查动作」表格 |
+
+示例输出见 [`results/daily_report_example.md`](results/daily_report_example.md)——
+里面每个数字都来自 `results/`，模型只做了归因和行文。
+
+### 为什么不用 RAG / 向量数据库
+
+本项目的数据是**结构化时序**（26,305 小时负荷 + 几张结果表），不是文档：
+全量放进上下文也只有几十 KB，而向量检索反而可能召回错行（把 3 月的数据当成 5 月）。
+所以这里走 **Function Calling** 路线：模型调用 `query_load(...)`、`find_anomalies(...)`
+这类函数，由代码算出精确结果。数据量再大一个数量级也依然适用。
+
+### 配置（三步）
+
+1. 到 [platform.deepseek.com](https://platform.deepseek.com) 注册并创建 API Key
+   （也可以换智谱 GLM / 通义千问 / Kimi，见 `.env.example`，它们都兼容 OpenAI 协议）；
+2. 把根目录的 `.env.example` 复制成 `.env`，填入密钥：
+
+   ```
+   DEEPSEEK_API_KEY=sk-你的密钥
+   ```
+
+3. 重启 Streamlit 即可。`.env` 已经写进 `.gitignore`，**不会被提交到 GitHub**。
+
+没有配置密钥时程序不会报错：日报自动降级成本地模板版，问答会提示先配置密钥。
+
+### 成本
+
+一次日报约 2,500 tokens，DeepSeek 折合 **0.003 元**左右；一次问答约 1,000~3,000 tokens。
+日常调试十元能用很久，GLM-4-Flash 则是完全免费的选项。
+
+### 防幻觉的三条约定
+
+1. 提示词明确要求「只能使用给定数据里的数字，不要自己计算或推算」；
+2. 数据缺失时要求写「该项数据缺失」，不允许用常识补全；
+3. 异常原因只能写「可能」，并说明依据来自哪个数字。
+
+实测效果：当异常点清单还没生成时，日报会直接写明"未提供逐点异常标记，该项数据缺失"，
+而不是编一段听起来合理的分析。
+
 ## 目录结构
 
 ```
@@ -283,15 +336,18 @@ MAE 从 7.17 降到 6.41，所以才加了这条规则。
 │   ├── evaluate.py               # 滚动起点评估协议
 │   ├── plots.py                  # 全部 Plotly 图（界面复用同一套）
 │   ├── registry.py               # 模型保存/加载
-│   └── models/                   # naive.py / lstm.py / xgb.py / arima.py，统一接口
+│   ├── models/                   # naive.py / lstm.py / xgb.py / arima.py，统一接口
+│   └── llm/                      # 大模型能力：client / context / tools / report / agent
 ├── scripts/
 │   ├── fetch_data.py             # 下载 + 校验 + 解压原始数据
 │   ├── recover_truncated_zip.py  # 从下载中断的 zip 里恢复已收到的数据
 │   ├── make_tables.py            # 把结果表渲染成 PNG（README 用）
 │   ├── make_gif.py               # 生成滚动预测 GIF
+│   ├── ai_report.py              # 命令行生成 AI 日报
 │   └── update_readme_results.py  # 把结果表写回 README
 ├── tests/
-│   └── test_smoke.py             # 无依赖测试：特征一致性、无泄漏、各模型可跑
+│   ├── test_smoke.py             # 无依赖测试：特征一致性、无泄漏、各模型可跑
+│   └── test_llm_smoke.py         # LLM 层测试（默认离线，--live 才真实调用接口）
 ├── data/                         # 原始数据与缓存（已 gitignore，不会上传）
 └── results/
     ├── *.csv / *.json            # 指标表与运行配置
@@ -310,6 +366,10 @@ python run_pipeline.py --annual off                     # 关掉 month 类年度
 python run_pipeline.py --no-temperature                 # 关掉温度特征
 python run_pipeline.py --auto-arima                     # ARIMA 用 AIC 选阶
 python tests/test_smoke.py                              # 跑测试（10 项）
+python tests/test_llm_smoke.py                          # LLM 层测试（离线）
+python tests/test_llm_smoke.py --live                   # 真实调用一次大模型
+python scripts/ai_report.py --out results/daily_report.md   # 命令行生成日报
+python run_pipeline.py --ai-report                      # 跑完实验顺带生成日报
 ```
 
 ## 已知限制

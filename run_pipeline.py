@@ -39,6 +39,7 @@ from src import plots
 from src.anomaly import (benchmark_detectors, global_3sigma_mask,
                          iforest_predict, fit_isolation_forest,
                          rolling_3sigma_mask)
+from src.llm.context import export_anomaly_points, export_feature_importance
 from src.config import RESULTS_DIR, get_config
 from src.data import get_dataset, synthetic_dataset
 from src.evaluate import evaluate_model, make_origins, results_to_table, train_end_index
@@ -70,6 +71,8 @@ def parse_args() -> argparse.Namespace:
                     help="是否使用 month 类年度特征：auto=训练跨度≥1年时启用")
     ap.add_argument("--auto-arima", action="store_true", help="用 AIC 小网格为 ARIMA 选阶")
     ap.add_argument("--no-cache", action="store_true", help="忽略小时级数据缓存")
+    ap.add_argument("--ai-report", action="store_true",
+                    help="跑完后调用大模型生成一份日报存到 results/daily_report.md")
     return ap.parse_args()
 
 
@@ -278,6 +281,8 @@ def main() -> int:
                "08_feature_ablation")
     if importance is not None:
         plots.save(plots.feature_importance_figure(importance), "09_feature_importance")
+        # 落盘数值版：大模型读不了 PNG，日报/问答要用这份 CSV
+        print("[export] 特征重要性 -> %s" % export_feature_importance(importance))
     if "temp" in df.columns:
         sample = df.sample(min(4000, len(df)), random_state=cfg.task.seed)
         plots.save(plots.temperature_scatter_figure(sample), "10_temperature_scatter")
@@ -294,7 +299,7 @@ def main() -> int:
                                                      window=bm.rolling_window),
     }
     iforest, cols = fit_isolation_forest(train_df, cfg)
-    mask_if, _ = iforest_predict(iforest, test_df, cols, window=bm.rolling_window)
+    mask_if, score_if = iforest_predict(iforest, test_df, cols, window=bm.rolling_window)
     masks["Isolation Forest"] = mask_if
 
     counts = pd.DataFrame({
@@ -302,6 +307,8 @@ def main() -> int:
         "占比(%)": {k: float(np.mean(v) * 100) for k, v in masks.items()},
     })
     print(counts.round(3).to_string())
+    print("[export] 异常点清单 -> %s"
+          % export_anomaly_points(test_df, masks, score=score_if))
 
     # 两个检测器的重合度
     a = masks["3-sigma (rolling 24h)"]
@@ -364,6 +371,18 @@ def main() -> int:
     cfg.save(os.path.join(RESULTS_DIR, "run_config.json"))
 
     banner("全部完成，用时 %.1f 分钟" % ((time.time() - t_start) / 60))
+    if args.ai_report:
+        try:
+            from src.llm.context import DataHub
+            from src.llm.report import generate_report
+            res = generate_report(DataHub(cfg), cfg, hours=24)
+            out = os.path.join(RESULTS_DIR, "daily_report.md")
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write(res["text"])
+            print("[AI] 日报已保存: %s（来源: %s）" % (out, res["source"]))
+        except Exception as exc:
+            print("[AI] 日报生成失败（不影响实验结果）: %s: %s"
+                  % (type(exc).__name__, exc))
     print("结果目录: %s" % RESULTS_DIR)
     print("下一步: streamlit run app.py")
     return 0

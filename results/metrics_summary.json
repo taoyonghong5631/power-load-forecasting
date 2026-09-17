@@ -37,7 +37,7 @@
       "pooled_PeakMAE": 2.0151814250798896,
       "pooled_R2": 0.8062490364526647,
       "n_origins": 30,
-      "predict_seconds": 0.0007545999978901818,
+      "predict_seconds": 0.0007495999989259872,
       "train_seconds": 0.0
     },
     "季节朴素 (t-24)": {
@@ -63,7 +63,7 @@
       "pooled_PeakMAE": 3.201964655010335,
       "pooled_R2": 0.5310622541031758,
       "n_origins": 30,
-      "predict_seconds": 0.0004530000078375451,
+      "predict_seconds": 0.0004467000007934985,
       "train_seconds": 0.0
     },
     "LSTM": {
@@ -89,8 +89,8 @@
       "pooled_PeakMAE": 2.86528036444497,
       "pooled_R2": 0.7557653041308825,
       "n_origins": 30,
-      "predict_seconds": 0.8681000000178756,
-      "train_seconds": 67.0897171497345
+      "predict_seconds": 0.9394989000015812,
+      "train_seconds": 74.20035338401794
     },
     "XGBoost (递归多步)": {
       "MAE": 1.6693255268521021,
@@ -115,8 +115,8 @@
       "pooled_PeakMAE": 2.200297513078912,
       "pooled_R2": 0.7614804751309447,
       "n_origins": 30,
-      "predict_seconds": 7.476875999986078,
-      "train_seconds": 0.6763668060302734
+      "predict_seconds": 8.337474700000257,
+      "train_seconds": 1.1084959506988525
     },
     "XGBoost (直接多步)": {
       "MAE": 1.6041118840906132,
@@ -141,8 +141,8 @@
       "pooled_PeakMAE": 3.4068344258427405,
       "pooled_R2": 0.767648372675059,
       "n_origins": 30,
-      "predict_seconds": 1.3850056999981462,
-      "train_seconds": 10.263580083847046
+      "predict_seconds": 1.4858781999982966,
+      "train_seconds": 11.37839412689209
     },
     "ARIMA": {
       "MAE": 1.298313096356391,
@@ -167,8 +167,8 @@
       "pooled_PeakMAE": 2.5265145813680907,
       "pooled_R2": 0.8277761205909959,
       "n_origins": 30,
-      "predict_seconds": 266.36490890001005,
-      "train_seconds": 0.0
+      "predict_seconds": 281.77740199999926,
+      "train_seconds": 0.003985881805419922
     }
   },
   "ablation": {
@@ -195,8 +195,8 @@
       "pooled_PeakMAE": 2.473331724073433,
       "pooled_R2": 0.7189058388964666,
       "n_origins": 30,
-      "predict_seconds": 4.713988099989365,
-      "train_seconds": 5.025033950805664
+      "predict_seconds": 5.056814099999428,
+      "train_seconds": 5.36034083366394
     },
     "+ Calendar": {
       "MAE": 1.7329036785714402,
@@ -221,8 +221,8 @@
       "pooled_PeakMAE": 2.2984084557936324,
       "pooled_R2": 0.7343103019346893,
       "n_origins": 30,
-      "predict_seconds": 6.540566400009993,
-      "train_seconds": 6.940703868865967
+      "predict_seconds": 7.044373599999744,
+      "train_seconds": 7.4352476596832275
     },
     "+ Calendar + Temperature": {
       "MAE": 1.6693255268521021,
@@ -247,8 +247,8 @@
       "pooled_PeakMAE": 2.200297513078912,
       "pooled_R2": 0.7614804751309447,
       "n_origins": 30,
-      "predict_seconds": 7.357684999995399,
-      "train_seconds": 7.797755718231201
+      "predict_seconds": 8.13396979999925,
+      "train_seconds": 8.561742067337036
     }
   },
   "anomaly": {
@@ -294,5 +294,5 @@
     },
     "alert_rate": 0.05
   },
-  "elapsed_seconds": 414.85303831100464
+  "elapsed_seconds": 446.9511978626251
 }
