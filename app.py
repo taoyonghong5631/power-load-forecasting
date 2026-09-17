@@ -150,11 +150,27 @@ with st.sidebar:
                               step=0.001, format="%.3f")
 
     st.subheader("6. AI 助手")
-    if has_api_key(get_config()):
+    _llm_cfg = get_config()
+    _env_path = _llm_cfg.llm.env_path
+    if has_api_key(_llm_cfg):
         st.success("已检测到 API 密钥，AI 功能可用")
     else:
-        st.warning("未检测到 API 密钥：日报会退回本地模板，问答不可用。"
-                   "在项目根目录 `.env` 里填 `DEEPSEEK_API_KEY=...` 后重启。")
+        st.warning("未检测到 API 密钥：日报会退回本地模板，问答不可用。")
+        with st.expander("为什么检测不到？（排查用）"):
+            st.write("程序查找的密钥文件：")
+            st.code(_env_path, language=None)
+            if os.path.exists(_env_path):
+                st.write("文件**存在**，但没有读到 `%s` 这一行。" % _llm_cfg.llm.api_key_env)
+                st.write("请确认文件内容是这种格式（等号两边不要加空格和引号）：")
+                st.code("%s=sk-你的密钥" % _llm_cfg.llm.api_key_env, language=None)
+            else:
+                st.write("文件**不存在**。常见原因：")
+                st.write("1. 你运行的是另一份项目副本（`.env` 不会上传到 GitHub，克隆下来是空的）；")
+                st.write("2. 还没有把 `.env.example` 复制成 `.env`。")
+                st.write("在本目录下执行：")
+                st.code("copy .env.example .env\nthen edit .env with your key", language=None)
+            st.write("改好之后，**需要重启 Streamlit**（在终端按 Ctrl+C，再重新 "
+                     "`streamlit run app.py`）才会生效。")
 
     run = st.button("🚀 开始训练与预测", type="primary", width="stretch")
 
