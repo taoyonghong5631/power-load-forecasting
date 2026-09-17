@@ -34,6 +34,7 @@ from src.llm.client import LLMUnavailable, has_api_key
 from src.llm.context import DataHub, build_daily_brief
 from src.llm.report import generate_report, stream_report, template_report
 from src.llm.tools import ToolBox
+from src.md_utils import protect_tildes, split_markdown_tables
 from src.models import build_model
 from src.registry import load_model
 
@@ -90,65 +91,22 @@ def render_ai_answer(payload: dict, key_prefix: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Markdown 渲染：Streamlit 不支持表格语法，这里手动接管
+# Markdown 渲染：表格用原生组件，正文里的波浪号要转义
 # --------------------------------------------------------------------------- #
-_TABLE_SEP = re.compile(r"^\s*\|?[\s:\-|]+\|[\s:\-|]*$")
-
-
-def _parse_md_table(lines):
-    """把 markdown 表格的若干行转成 DataFrame（列数不齐时自动补齐/截断）。"""
-    def split_row(line):
-        cells = [c.strip() for c in line.strip().strip('|').split('|')]
-        return cells
-    header = split_row(lines[0])
-    rows = [split_row(l) for l in lines[2:]]
-    width = len(header)
-    norm = [(r + [""] * width)[:width] for r in rows]
-    return pd.DataFrame(norm, columns=header)
-
-
-def split_markdown_tables(text: str):
-    """把文本拆成 [("md", 文本) | ("table", DataFrame)] 序列。"""
-    lines = text.split("\n")
-    blocks, buf, i = [], [], 0
-    while i < len(lines):
-        line = lines[i]
-        is_row = line.strip().startswith("|") and line.strip().endswith("|")
-        is_table = (is_row and i + 1 < len(lines)
-                    and _TABLE_SEP.match(lines[i + 1]) and "|" in lines[i + 1])
-        if is_table:
-            chunk = [line, lines[i + 1]]
-            j = i + 2
-            while j < len(lines) and lines[j].strip().startswith("|"):
-                chunk.append(lines[j])
-                j += 1
-            if buf:
-                blocks.append(("md", "\n".join(buf)))
-                buf = []
-            blocks.append(("table", _parse_md_table(chunk)))
-            i = j
-            continue
-        buf.append(line)
-        i += 1
-    if buf:
-        blocks.append(("md", "\n".join(buf)))
-    return blocks
-
-
 def render_rich_markdown(text: str) -> None:
     """渲染大模型输出：普通内容走 st.markdown，表格改用 st.dataframe。
 
-    为什么不用 st.markdown 直接渲染表格：Streamlit 的前端只打包了
-    remark-emoji / rehype-raw / rehype-katex，**没有 GFM 表格支持**，
-    表格会被当成普通文字显示——用户看到的就是一行 `|---|---|` 横线
-    和一堆带竖线的原始数据行。
+    两处保护（详见 src/md_utils.py）：
+    * 表格抽出来用 st.dataframe，避免不同版本对 Markdown 表格支持不一致；
+    * 正文里的半角波浪号换成全角，否则 "10~18℃ ... -50~10℃" 这样的区间
+      会被 GFM 当成删除线，把中间整段文字划掉。
     """
     for kind, payload in split_markdown_tables(text or ""):
         if kind == "table":
             if not payload.empty:
                 st.dataframe(payload, width="stretch", hide_index=True)
         elif payload.strip():
-            st.markdown(payload)
+            st.markdown(protect_tildes(payload))
 
 
 def dataset_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -433,7 +391,8 @@ if df is not None and len(df) > 0:
                 with st.spinner("正在生成日报..."):
                     for piece in stream_report(hub_charts, cfg, hours=24):
                         pieces.append(piece)
-                        holder.markdown("".join(pieces))      # 边生成边显示
+                        # 边生成边显示（波浪号同样要保护，否则区间会被划掉）
+                        holder.markdown(protect_tildes("".join(pieces)))
                 holder.empty()
                 # 生成完再按"支持表格"的方式重画一遍
                 render_rich_markdown("".join(pieces))

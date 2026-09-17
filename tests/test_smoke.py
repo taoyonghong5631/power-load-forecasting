@@ -22,6 +22,7 @@ from src.config import get_config
 from src.data import synthetic_dataset
 from src.evaluate import make_origins, train_end_index
 from src.features import build_features, build_supervised, feature_names, next_step_row
+from src.md_utils import protect_tildes, split_markdown_tables
 
 
 def test_next_step_row_matches_batch_features():
@@ -166,6 +167,34 @@ def test_naive_forecaster():
     assert np.allclose(p24, expected)
     # 关键：预测里不能出现 origin 之后(含)的真实值
     assert not np.allclose(p24, load[401:425]), "季节性朴素混入了未来信息"
+
+
+def test_tilde_protection():
+    """波浪号必须被换成全角，否则 "10~18℃ ... -50~10℃" 会被 GFM 划掉。"""
+    src = "分温度段看，10~18℃区间平均负荷（135.63 kW）高于 -50~10℃区间"
+    out = protect_tildes(src)
+    assert "~" not in out, "还剩半角波浪号，仍会被当成删除线：%r" % out
+    assert out.count("～") == 2
+    assert "10～18℃" in out and "-50～10℃" in out
+    # 行内代码里的波浪号不转换（那里不参与 Markdown 解析）
+    assert protect_tildes("`a~b` 和 x~y") == "`a~b` 和 x～y"
+    # 数字、单位、中文混排都不能被吃掉
+    assert "135.63 kW）高于" in out
+
+
+def test_split_markdown_tables():
+    text = ("前面的话\n\n| 时间 | 负荷 |\n|---|---|\n| 08-27 | 25.38 |\n\n后面的话")
+    blocks = split_markdown_tables(text)
+    kinds = [k for k, _ in blocks]
+    assert kinds == ["md", "table", "md"], kinds
+    table = [v for k, v in blocks if k == "table"][0]
+    assert list(table.columns) == ["时间", "负荷"]
+    assert table.shape == (1, 2)
+    # 不是表格时保持原样
+    assert [k for k, _ in split_markdown_tables("a | b\n普通文字")] == ["md"]
+    # 列数不齐要能对齐
+    ragged = split_markdown_tables("| a | b | c |\n|---|---|---|\n| 1 | 2 |")[0][1]
+    assert ragged.shape == (1, 3)
 
 
 def test_lstm_short_run():
