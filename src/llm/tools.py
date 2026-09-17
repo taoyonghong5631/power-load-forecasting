@@ -90,6 +90,19 @@ def tool_names() -> List[str]:
     return [t["function"]["name"] for t in TOOL_SCHEMAS]
 
 
+# 界面上展示用的中文名（函数名本身仍保留在 trace 里，方便核对）
+TOOL_LABELS = {
+    "describe_dataset": "查看数据概况",
+    "query_load": "查询负荷",
+    "find_anomalies": "查异常点",
+    "compare_models": "对比模型指标",
+    "get_feature_importance": "查特征重要性",
+    "get_temperature_relation": "查温度关系",
+    "plot_forecast": "画预测对比图",
+    "plot_anomalies": "画异常点图",
+}
+
+
 # --------------------------------------------------------------------------- #
 # 工具箱
 # --------------------------------------------------------------------------- #
@@ -101,7 +114,12 @@ class ToolBox:
         self.trace: List[dict] = []               # 调用记录，界面上可以展示
 
     def _log(self, name: str, args: dict, summary: str) -> None:
-        self.trace.append({"工具": name, "参数": args, "结果摘要": summary})
+        params = "，".join("%s=%s" % (k, v) for k, v in (args or {}).items()
+                          if v is not None) or "—"
+        self.trace.append({"工具": TOOL_LABELS.get(name, name),
+                           "函数": name,
+                           "参数": params,
+                           "结果摘要": summary})
 
     # ---------------- 各工具 ----------------
     def describe_dataset(self) -> dict:
