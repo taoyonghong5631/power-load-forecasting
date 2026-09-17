@@ -93,6 +93,8 @@ def _friendly_error(exc: Exception) -> str:
 def chat(cfg: Config, messages: List[dict], tools: Optional[list] = None,
          temperature: Optional[float] = None):
     """调用一次对话补全，返回 message 对象（可能带 tool_calls）。"""
+    if os.getenv("LLM_OFFLINE"):
+        return _offline_message(messages), None
     client = get_client(cfg)
     kwargs = {
         "model": cfg.llm.model,
@@ -113,6 +115,10 @@ def chat(cfg: Config, messages: List[dict], tools: Optional[list] = None,
 def chat_stream(cfg: Config, messages: List[dict],
                 temperature: Optional[float] = None) -> Iterator[str]:
     """流式输出，逐段 yield 文本（界面里可以边生成边显示）。"""
+    if os.getenv("LLM_OFFLINE"):
+        for piece in ["[离线模式] ", "这是一段占位日报，", "用于在不调用大模型的情况下测试界面。"]:
+            yield piece
+        return
     client = get_client(cfg)
     try:
         stream = client.chat.completions.create(
@@ -141,3 +147,21 @@ def test_connection(cfg: Config) -> dict:
                 "tokens": getattr(usage, "total_tokens", None)}
     except LLMUnavailable as exc:
         return {"ok": False, "seconds": round(time.time() - t0, 2), "error": str(exc)}
+
+
+class _OfflineMessage:
+    """离线模式下的假返回，字段与 SDK 的 message 保持一致。"""
+
+    def __init__(self, content: str):
+        self.content = content
+        self.tool_calls = None
+
+
+def _offline_message(messages: List[dict]):
+    question = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            question = str(m.get("content", ""))[:60]
+            break
+    return _OfflineMessage("[离线模式] 已收到问题：「%s」。这段是占位回答，"
+                           "用于在不调用大模型的情况下测试界面。" % question)

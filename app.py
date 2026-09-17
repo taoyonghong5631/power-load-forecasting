@@ -74,7 +74,10 @@ def _results_stamp() -> float:
 
 def render_ai_answer(payload: dict, key_prefix: str) -> None:
     """把一次 AI 回答（正文 + 图 + 工具调用记录）渲染出来。"""
-    st.markdown(payload.get("text", "（没有内容）"))
+    # 注意：实时生成时字典用 "text" 键，存进对话历史后用的是 "content" 键。
+    # 只认其中一个会导致重画历史时全部变成占位文字（曾经踩过这个坑）。
+    text = payload.get("text") or payload.get("content") or "（没有内容）"
+    st.markdown(text)
     figs = st.session_state.setdefault("ai_figures", {})
     for name in payload.get("figures", []):
         if name in figs:
@@ -468,7 +471,9 @@ if df is not None and len(df) > 0:
                 if qcols[i % 2].button(q, key="quick_%d" % i, width="stretch"):
                     st.session_state["pending_question"] = q
 
-            for i, msg in enumerate(st.session_state.setdefault("chat_history", [])):
+            # 先渲染历史对话
+            history = st.session_state.setdefault("chat_history", [])
+            for i, msg in enumerate(history):
                 with st.chat_message(msg["role"]):
                     render_ai_answer(msg, "h%d" % i)
 
@@ -477,23 +482,27 @@ if df is not None and len(df) > 0:
                 question = st.session_state.pop("pending_question")
 
             if question:
-                st.session_state.chat_history.append(
-                    {"role": "user", "content": question})
+                # 注意：这里**不要**用 st.rerun() 重画。
+                # 曾经的做法是"先渲染答案 -> append 到历史 -> st.rerun() 重跑"，
+                # 在浏览器里重跑那一步会丢状态，用户看到的就是答案一闪而过。
+                # 现在按官方聊天示例的写法：答完直接画在当前页面。
+                history.append({"role": "user", "content": question})
+                st.session_state["chat_history"] = history      # 显式写回，确保不被回收
                 with st.chat_message("user"):
                     st.markdown(question)
+
                 box = ToolBox(hub_ai, cfg)
                 with st.chat_message("assistant"):
                     with st.spinner("正在查数据并组织回答..."):
-                        ans = run_agent(question, box, cfg,
-                                        history=st.session_state.chat_history)
+                        ans = run_agent(question, box, cfg, history=history)
                     st.session_state.setdefault("ai_figures", {}).update(box.figures)
                     render_ai_answer(ans, "new")
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": ans.get("text", ""),
-                     "figures": ans.get("figures", []), "trace": ans.get("trace", [])})
-                st.rerun()
+                history.append({"role": "assistant", "content": ans.get("text", ""),
+                                "figures": ans.get("figures", []),
+                                "trace": ans.get("trace", [])})
+                st.session_state["chat_history"] = history
 
-            if st.session_state.get("chat_history") and st.button("清空对话", key="clear_chat"):
+            if history and st.button("清空对话", key="clear_chat"):
                 st.session_state["chat_history"] = []
                 st.session_state["ai_figures"] = {}
                 st.rerun()
